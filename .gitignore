@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Entorno y Secretos (¡MUY IMPORTANTE!)
+.env
+.env.local
+.env.*.local
+
+# Datos dinámicos y persistencia local
+data/
+database/
+*.sqlite
+*.db
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Editor
+.vscode/
+.idea/

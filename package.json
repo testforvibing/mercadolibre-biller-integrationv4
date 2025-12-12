@@ -1,0 +1,42 @@
+{
+  "name": "mercadolibre-biller-integration",
+  "version": "3.0.0",
+  "description": "Integración MercadoLibre ↔ Biller para facturación electrónica en Uruguay",
+  "main": "server-v3.js",
+  "scripts": {
+    "start": "node server-v3.js",
+    "dev": "node --watch server-v3.js",
+    "start:legacy": "node server.js",
+    "test": "node tests/test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "form-data": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT",
+  "keywords": [
+    "mercadolibre",
+    "biller",
+    "facturacion",
+    "uruguay",
+    "cfe",
+    "dgi"
+  ],
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MateoFabregat/mercdolibre-biller-integrationv2.git"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MateoFabregat/mercdolibre-biller-integrationv2/issues"
+  },
+  "homepage": "https://github.com/MateoFabregat/mercdolibre-biller-integrationv2#readme"
+}

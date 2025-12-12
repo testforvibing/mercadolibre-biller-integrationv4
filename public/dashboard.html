@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - MercadoLibre Biller</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; }
+
+    .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 22px; font-weight: 600; }
+    .header .status-badge { padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; }
+    .header .status-badge.healthy { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+    .header .status-badge.degraded { background: rgba(250, 204, 21, 0.2); color: #facc15; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 25px; }
+
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 25px; }
+    @media (max-width: 1200px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .card-header h2 { font-size: 13px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+
+    .metric-value { font-size: 36px; font-weight: 700; color: #1e293b; line-height: 1; }
+    .metric-label { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+    .metric-change { font-size: 12px; margin-top: 8px; }
+    .metric-change.positive { color: #22c55e; }
+    .metric-change.negative { color: #ef4444; }
+
+    .breakdown { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #f1f5f9; }
+    .breakdown-item { position: relative; }
+    .breakdown-item .value { font-size: 20px; font-weight: 600; color: #334155; }
+    .breakdown-item .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; display: flex; align-items: center; gap: 4px; }
+
+    .progress-container { margin-top: 12px; }
+    .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+    .progress-fill.success { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .progress-fill.warning { background: linear-gradient(90deg, #eab308, #facc15); }
+    .progress-fill.danger { background: linear-gradient(90deg, #dc2626, #ef4444); }
+
+    .two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+    @media (max-width: 1024px) { .two-col { grid-template-columns: 1fr; } }
+
+    .error-list { max-height: 400px; overflow-y: auto; }
+    .error-item { padding: 12px 15px; border-left: 3px solid; margin-bottom: 8px; background: #f8fafc; border-radius: 0 8px 8px 0; }
+    .error-item.critical { border-color: #dc2626; background: #fef2f2; }
+    .error-item.high { border-color: #f97316; background: #fff7ed; }
+    .error-item.medium { border-color: #eab308; background: #fefce8; }
+    .error-item.low { border-color: #22c55e; background: #f0fdf4; }
+    .error-item .error-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .error-item .error-type { font-size: 11px; text-transform: uppercase; font-weight: 600; color: #64748b; }
+    .error-item .error-time { font-size: 11px; color: #94a3b8; }
+    .error-item .error-message { font-size: 13px; color: #334155; }
+    .error-item .error-context { font-size: 11px; color: #64748b; margin-top: 4px; }
+
+    .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-secondary { background: #e2e8f0; color: #475569; }
+    .btn-secondary:hover { background: #cbd5e1; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+    .status-indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .status-indicator.closed { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+    .status-indicator.half-open { background: #eab308; box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
+    .status-indicator.open { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+
+    .reconciliation-panel { padding: 20px; }
+    .reconciliation-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+    .reconciliation-stat { text-align: center; padding: 15px; background: #f8fafc; border-radius: 8px; }
+    .reconciliation-stat .value { font-size: 24px; font-weight: 700; }
+    .reconciliation-stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
+    .reconciliation-stat.success .value { color: #22c55e; }
+    .reconciliation-stat.warning .value { color: #eab308; }
+    .reconciliation-stat.danger .value { color: #ef4444; }
+
+    .refresh-indicator { position: fixed; bottom: 20px; right: 20px; background: white; padding: 10px 16px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 8px; }
+    .refresh-indicator .dot { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; }
+    .empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.5; }
+
+    .loading { opacity: 0.6; pointer-events: none; }
+
+    /* Tooltip styles */
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      background: #e2e8f0;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 700;
+      color: #64748b;
+      cursor: help;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .info-icon:hover { background: #cbd5e1; }
+
+    .tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      width: 280px;
+      line-height: 1.5;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      text-align: left;
+    }
+    .tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #1e293b;
+    }
+    .info-icon:hover .tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .tooltip-right {
+      left: auto;
+      right: 0;
+      transform: none;
+    }
+    .tooltip-right::after {
+      left: auto;
+      right: 12px;
+      transform: none;
+    }
+
+    .tooltip-left {
+      left: 0;
+      transform: none;
+    }
+    .tooltip-left::after {
+      left: 12px;
+      transform: none;
+    }
+
+    .status-explanation {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f8fafc;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Dashboard - Integracion MercadoLibre Biller</h1>
+      <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
+        Uptime: <span id="uptime">-</span> | Ambiente: <span id="ambiente">-</span>
+      </div>
+    </div>
+    <div class="status-badge" id="systemStatus">Cargando...</div>
+  </div>
+
+  <div class="container">
+    <!-- Metricas principales -->
+    <div class="grid">
+      <!-- Comprobantes -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Comprobantes Emitidos</h2>
+          <span class="info-icon">i
+            <span class="tooltip tooltip-left">
+              <strong>Comprobantes Fiscales Electronicos (CFE)</strong><br><br>
+              Documentos emitidos a traves de Biller y enviados a la DGI de Uruguay.<br><br>
+              <strong>e-Ticket:</strong> Para consumidor final (sin RUT)<br>
+              <strong>e-Factura:</strong> Para empresas (con RUT)<br>
+              <strong>NC:</strong> Notas de Credito por devoluciones
+            </span>
+          </span>
+        </div>
+        <div class="metric-value" id="totalComprobantes">-</div>
+        <div class="metric-label">Total acumulado</div>
+        <div class="metric-change positive" id="comprobantesHoy">Hoy: -</div>
+        <div class="breakdown">
+          <div class="breakdown-item">
+            <div class="value" id="eTickets">-</div>
+            <div class="label">e-Tickets</div>
+          </div>
+          <div class="breakdown-item">
+            <div class="value" id="eFacturas">-</div>
+            <div class="label">e-Facturas</div>
+          </div>
+          <div class="breakdown-item">
+            <div class="value" id="ncETickets">-</div>
+            <div class="label">NC e-Ticket</div>
+          </div>
+          <div class="breakdown-item">
+            <div class="value" id="ncEFacturas">-</div>
+            <div class="label">NC e-Factura</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhooks -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Webhooks</h2>
+          <span class="info-icon">i
+            <span class="tooltip">
+              <strong>Notificaciones de MercadoLibre</strong><br><br>
+              MercadoLibre envia webhooks cuando ocurre una venta. Este sistema los recibe y procesa para emitir facturas.<br><br>
+              <strong>Recibidos:</strong> Webhooks que llegaron al servidor<br>
+              <strong>Procesados:</strong> Webhooks convertidos en facturas<br>
+              <strong>Tasa de exito:</strong> % de webhooks procesados correctamente (ideal: >95%)
+            </span>
+          </span>
+        </div>
+        <div class="metric-value"><span id="whProcesados">-</span><span style="font-size: 18px; color: #94a3b8;"> / <span id="whRecibidos">-</span></span></div>
+        <div class="metric-label">Procesados / Recibidos</div>
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill success" id="whProgressBar" style="width: 0%"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: #64748b;">
+            <span>Tasa de exito: <strong id="whTasaExito">-</strong>%</span>
+            <span>Fallidos: <strong id="whFallidos">-</strong></span>
+          </div>
+        </div>
+        <div class="breakdown">
+          <div class="breakdown-item">
+            <div class="value" id="whPendientes">-</div>
+            <div class="label">
+              En Cola
+              <span class="info-icon" style="width: 14px; height: 14px; font-size: 9px;">i
+                <span class="tooltip tooltip-left">
+                  Webhooks esperando ser procesados. Idealmente debe ser 0.
+                </span>
+              </span>
+            </div>
+          </div>
+          <div class="breakdown-item">
+            <div class="value" style="color: #ef4444" id="whDead">-</div>
+            <div class="label">
+              Dead Letter
+              <span class="info-icon" style="width: 14px; height: 14px; font-size: 9px;">i
+                <span class="tooltip tooltip-right">
+                  <strong>Webhooks que fallaron multiples veces</strong><br><br>
+                  Despues de 5 reintentos, un webhook se mueve a "Dead Letter Queue". Requiere revision manual. Si hay muchos, puede indicar un problema con la API de Biller o datos invalidos.
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Errores -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Errores</h2>
+          <span class="info-icon">i
+            <span class="tooltip">
+              <strong>Errores del Sistema</strong><br><br>
+              Problemas detectados durante el procesamiento de ventas o comunicacion con APIs.<br><br>
+              <strong>Criticos:</strong> Requieren atencion inmediata<br>
+              <strong>Altos:</strong> Afectan la facturacion<br>
+              <strong>Medios/Bajos:</strong> Informativos
+            </span>
+          </span>
+        </div>
+        <div class="metric-value" id="errorsSinResolver">-</div>
+        <div class="metric-label">Sin resolver</div>
+        <div class="metric-change" id="errorsUltimaHora">Ultima hora: -</div>
+        <div class="breakdown">
+          <div class="breakdown-item">
+            <div class="value" style="color: #dc2626" id="errorsCritical">-</div>
+            <div class="label">Criticos</div>
+          </div>
+          <div class="breakdown-item">
+            <div class="value" style="color: #f97316" id="errorsHigh">-</div>
+            <div class="label">Altos</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estado Integracion -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Estado Integracion</h2>
+          <span class="info-icon">i
+            <span class="tooltip tooltip-right">
+              <strong>Circuit Breaker</strong><br><br>
+              Mecanismo de proteccion que detecta si la API de Biller esta fallando y evita enviar mas solicitudes (para no saturarla).<br><br>
+              <strong style="color: #22c55e;">Operativo:</strong> Todo funciona normal<br>
+              <strong style="color: #eab308;">Recuperando:</strong> Probando si Biller responde<br>
+              <strong style="color: #ef4444;">Abierto:</strong> Biller no responde, se pausan las solicitudes
+            </span>
+          </span>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <div class="metric-label">Biller API</div>
+          <div style="display: flex; align-items: center; margin-top: 5px;">
+            <span class="status-indicator" id="billerIndicator"></span>
+            <span style="font-size: 16px; font-weight: 600;" id="billerStatus">-</span>
+          </div>
+        </div>
+        <div class="status-explanation" id="circuitExplanation">
+          Verificando estado...
+        </div>
+      </div>
+    </div>
+
+    <!-- Seccion inferior -->
+    <div class="two-col">
+      <!-- Errores recientes -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <div class="card-header" style="margin-bottom: 0;">
+            <h2 style="margin: 0;">Errores Recientes</h2>
+            <span class="info-icon">i
+              <span class="tooltip tooltip-left">
+                Lista de los ultimos errores detectados. Puedes marcarlos como resueltos desde la API.
+              </span>
+            </span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="loadErrors()">Actualizar</button>
+        </div>
+        <div class="error-list" id="errorList">
+          <div class="empty-state">
+            <div>Cargando errores...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de Reconciliacion -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Reconciliacion</h2>
+          <span class="info-icon">i
+            <span class="tooltip tooltip-right">
+              <strong>Verificacion de Consistencia</strong><br><br>
+              Compara los comprobantes guardados localmente con los registrados en Biller para detectar discrepancias.<br><br>
+              <strong>Coinciden:</strong> Datos iguales en ambos sistemas<br>
+              <strong>Discrepancias:</strong> Diferencias encontradas que requieren revision
+            </span>
+          </span>
+        </div>
+        <div class="reconciliation-panel">
+          <div id="reconciliationStatus">
+            <div class="empty-state">
+              <div style="margin-bottom: 15px;">No se ha ejecutado reconciliacion</div>
+              <button class="btn btn-primary" onclick="runReconciliation()">Ejecutar Ahora</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="refresh-indicator">
+    <span class="dot"></span>
+    Auto-refresh cada 10s
+  </div>
+
+  <script>
+    const API_BASE = '';
+
+    async function loadDashboard() {
+      try {
+        const res = await fetch(`${API_BASE}/api/dashboard`);
+        const data = await res.json();
+
+        // Status general
+        const statusEl = document.getElementById('systemStatus');
+        statusEl.textContent = data.summary.status === 'healthy' ? 'Sistema Operativo' : 'Sistema Degradado';
+        statusEl.className = `status-badge ${data.summary.status}`;
+
+        // Uptime y ambiente
+        document.getElementById('uptime').textContent = data.summary.uptime.formatted;
+        document.getElementById('ambiente').textContent = data.config.ambiente;
+
+        // Comprobantes
+        document.getElementById('totalComprobantes').textContent = data.comprobantes.total;
+        document.getElementById('comprobantesHoy').textContent = `Hoy: ${data.comprobantes.hoy}`;
+        document.getElementById('eTickets').textContent = data.comprobantes.porTipo.eTickets;
+        document.getElementById('eFacturas').textContent = data.comprobantes.porTipo.eFacturas;
+        document.getElementById('ncETickets').textContent = data.comprobantes.porTipo.ncETickets;
+        document.getElementById('ncEFacturas').textContent = data.comprobantes.porTipo.ncEFacturas;
+
+        // Webhooks
+        document.getElementById('whRecibidos').textContent = data.webhooks.recibidos;
+        document.getElementById('whProcesados').textContent = data.webhooks.procesados;
+        document.getElementById('whFallidos').textContent = data.webhooks.fallidos;
+        document.getElementById('whTasaExito').textContent = data.webhooks.tasaExito;
+
+        const progressBar = document.getElementById('whProgressBar');
+        progressBar.style.width = `${data.webhooks.tasaExito}%`;
+        progressBar.className = `progress-fill ${data.webhooks.tasaExito >= 95 ? 'success' : data.webhooks.tasaExito >= 80 ? 'warning' : 'danger'}`;
+
+        document.getElementById('whPendientes').textContent = data.webhooks.cola.pendientes;
+        document.getElementById('whDead').textContent = data.webhooks.cola.dead;
+
+        // Errores
+        document.getElementById('errorsSinResolver').textContent = data.errors.sinResolver;
+        document.getElementById('errorsUltimaHora').textContent = `Ultima hora: ${data.errors.ultimaHora}`;
+        document.getElementById('errorsCritical').textContent = data.errors.porSeveridad?.critical || 0;
+        document.getElementById('errorsHigh').textContent = data.errors.porSeveridad?.high || 0;
+
+        // Estado integracion - Manejar objeto complejo del circuit breaker
+        let billerState = 'closed'; // default
+        const circuitStatus = data.integration.biller.status;
+
+        // El circuit breaker puede devolver un objeto o un string
+        if (typeof circuitStatus === 'object' && circuitStatus !== null) {
+          billerState = (circuitStatus.state || 'CLOSED').toLowerCase();
+        } else if (typeof circuitStatus === 'string') {
+          billerState = circuitStatus.toLowerCase();
+        }
+
+        const statusText = billerState === 'closed' ? 'Operativo' :
+                          billerState === 'half-open' ? 'Recuperando' : 'Pausado';
+
+        document.getElementById('billerStatus').textContent = statusText;
+        document.getElementById('billerIndicator').className = `status-indicator ${billerState}`;
+
+        // Explicacion del estado
+        const explanations = {
+          'closed': 'La conexion con Biller funciona correctamente. Las facturas se emiten sin problemas.',
+          'half-open': 'El sistema esta probando si Biller responde. Algunas solicitudes pueden fallar temporalmente.',
+          'open': 'Se detectaron multiples fallos con Biller. Las solicitudes estan pausadas por 60 segundos para evitar saturar el servicio.'
+        };
+        document.getElementById('circuitExplanation').textContent = explanations[billerState] || 'Estado desconocido';
+
+      } catch (error) {
+        console.error('Error cargando dashboard:', error);
+      }
+    }
+
+    async function loadErrors() {
+      try {
+        const res = await fetch(`${API_BASE}/api/errors?limit=15&resolved=false`);
+        const data = await res.json();
+
+        const list = document.getElementById('errorList');
+
+        if (data.errors.length === 0) {
+          list.innerHTML = `
+            <div class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>Sin errores recientes</div>
+            </div>
+          `;
+          return;
+        }
+
+        list.innerHTML = data.errors.map(err => `
+          <div class="error-item ${err.severity}">
+            <div class="error-header">
+              <span class="error-type">${err.type}</span>
+              <span class="error-time">${formatTime(err.timestamp)}</span>
+            </div>
+            <div class="error-message">${escapeHtml(err.message)}</div>
+            ${err.context?.orderId ? `<div class="error-context">Orden: ${err.context.orderId}</div>` : ''}
+          </div>
+        `).join('');
+
+      } catch (error) {
+        document.getElementById('errorList').innerHTML = `
+          <div class="empty-state">Error cargando datos</div>
+        `;
+      }
+    }
+
+    async function runReconciliation() {
+      const panel = document.getElementById('reconciliationStatus');
+      panel.innerHTML = '<div class="empty-state">Ejecutando reconciliacion...</div>';
+      panel.classList.add('loading');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/reconciliation/run`, { method: 'POST' });
+        const data = await res.json();
+
+        panel.classList.remove('loading');
+
+        if (data.error) {
+          panel.innerHTML = `<div class="empty-state" style="color: #ef4444;">${data.error}</div>`;
+          return;
+        }
+
+        panel.innerHTML = `
+          <div class="reconciliation-stats">
+            <div class="reconciliation-stat success">
+              <div class="value">${data.matched}</div>
+              <div class="label">Coinciden</div>
+            </div>
+            <div class="reconciliation-stat ${data.discrepancies.length > 0 ? 'danger' : 'success'}">
+              <div class="value">${data.discrepancies.length}</div>
+              <div class="label">Discrepancias</div>
+            </div>
+            <div class="reconciliation-stat">
+              <div class="value">${data.localComprobantes}</div>
+              <div class="label">Total Local</div>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: #64748b; margin-bottom: 15px;">
+            Completado: ${formatTime(data.completedAt)} | Duracion: ${data.durationFormatted}
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="runReconciliation()">Ejecutar Nuevamente</button>
+          ${data.discrepancies.length > 0 ? `
+            <button class="btn btn-secondary btn-sm" onclick="viewDiscrepancies()" style="margin-left: 8px;">Ver Discrepancias</button>
+          ` : ''}
+        `;
+
+      } catch (error) {
+        panel.classList.remove('loading');
+        panel.innerHTML = `<div class="empty-state" style="color: #ef4444;">Error: ${error.message}</div>`;
+      }
+    }
+
+    async function loadReconciliationStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/api/reconciliation/status`);
+        const data = await res.json();
+
+        if (data.lastRun === null) return;
+
+        const panel = document.getElementById('reconciliationStatus');
+        panel.innerHTML = `
+          <div class="reconciliation-stats">
+            <div class="reconciliation-stat success">
+              <div class="value">${data.matched}</div>
+              <div class="label">Coinciden</div>
+            </div>
+            <div class="reconciliation-stat ${data.discrepanciesCount > 0 ? 'danger' : 'success'}">
+              <div class="value">${data.discrepanciesCount}</div>
+              <div class="label">Discrepancias</div>
+            </div>
+            <div class="reconciliation-stat">
+              <div class="value">${data.localComprobantes}</div>
+              <div class="label">Total</div>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: #64748b; margin-bottom: 15px;">
+            Ultima: ${formatTime(data.completedAt)} | Duracion: ${data.duration}
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="runReconciliation()">Ejecutar Nuevamente</button>
+        `;
+      } catch (error) {
+        // Mantener estado inicial si no hay datos
+      }
+    }
+
+    function viewDiscrepancies() {
+      window.open('/api/reconciliation/discrepancies', '_blank');
+    }
+
+    function formatTime(isoString) {
+      const date = new Date(isoString);
+      return date.toLocaleString('es-UY', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Cargar inicial
+    loadDashboard();
+    loadErrors();
+    loadReconciliationStatus();
+
+    // Auto-refresh
+    setInterval(loadDashboard, 10000);
+    setInterval(loadErrors, 30000);
+  </script>
+</body>
+</html>
