@@ -295,12 +295,20 @@ async function procesarOrdenMercadoLibre(orderId) {
         });
         endBillerTimer();
 
-        // 9. Guardar en store
+        // 9. Calcular total de la orden para futuras NC
+        const totalOrden = (order.order_items || []).reduce((sum, item) => {
+            return sum + (parseFloat(item.unit_price) * (item.quantity || 1));
+        }, 0) + (order.shipping?.cost ? parseFloat(order.shipping.cost) : 0);
+
+        // 10. Guardar en store
         comprobanteStore.set(orderId, {
             ...comprobante,
             ml_order_id: orderId,
             tipo_decision: decision.razon,
             cliente_identificado: !!decision.cliente,
+            cliente: decision.cliente || null,
+            total: totalOrden,
+            monto_total: totalOrden,
             pdf_status: 'pending',
             pdf_attempt_count: 0
         });
@@ -539,6 +547,191 @@ app.get('/api/notas-credito', (req, res) => {
         total: ncs.length,
         notasCredito: ncs
     });
+});
+
+// ============================================================
+// ENDPOINT PARA REPROCESAR ORDEN MANUALMENTE
+// Útil para cancelaciones que no llegaron por webhook
+// ============================================================
+app.post('/api/reprocesar-orden/:orderId', async (req, res) => {
+    const { orderId } = req.params;
+    logger.info(`🔄 Reprocesando orden manualmente: ${orderId}`);
+
+    try {
+        await procesarOrdenMercadoLibre(orderId);
+        res.json({ success: true, message: `Orden ${orderId} reprocesada` });
+    } catch (error) {
+        logger.error('Error reprocesando orden', { orderId, error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint para forzar emisión de NC por cancelación
+app.post('/api/emitir-nc/:orderId', async (req, res) => {
+    const { orderId } = req.params;
+    logger.info(`📝 Forzando emisión de NC para orden: ${orderId}`);
+
+    try {
+        // Obtener la orden de MercadoLibre
+        const order = await obtenerOrdenML(orderId);
+
+        if (!order) {
+            return res.status(404).json({ success: false, error: 'Orden no encontrada en MercadoLibre' });
+        }
+
+        // Forzar el status a cancelled para emitir NC
+        const ordenParaNC = { ...order, status: 'cancelled' };
+
+        const resultado = await procesarCancelacion(ordenParaNC);
+
+        if (resultado.action === 'nc_emitted') {
+            metrics.ncEmitidas++;
+            res.json({
+                success: true,
+                message: `NC emitida exitosamente`,
+                nc: resultado.nc
+            });
+        } else {
+            res.json({
+                success: false,
+                action: resultado.action,
+                reason: resultado.reason
+            });
+        }
+    } catch (error) {
+        logger.error('Error emitiendo NC manualmente', { orderId, error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint para anular comprobante directamente en Biller
+// Usa el endpoint /anular de Biller que crea automáticamente la NC correcta
+app.post('/api/anular-comprobante', async (req, res) => {
+    const { id, tipo_comprobante, serie, numero, fecha_emision_hoy } = req.body;
+
+    logger.info('🔄 Anulando comprobante via API', { id, tipo_comprobante, serie, numero });
+
+    try {
+        // Validar parámetros
+        if (!id && !(tipo_comprobante && serie && numero)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Debe proporcionar id o (tipo_comprobante, serie, numero)'
+            });
+        }
+
+        const params = {
+            fecha_emision_hoy: fecha_emision_hoy !== false
+        };
+
+        if (id) {
+            params.id = id;
+        } else {
+            params.tipo_comprobante = tipo_comprobante;
+            params.serie = serie;
+            params.numero = numero;
+        }
+
+        const nc = await biller.anularComprobante(params);
+
+        metrics.ncEmitidas++;
+
+        res.json({
+            success: true,
+            message: 'Comprobante anulado exitosamente',
+            nc: {
+                id: nc.id,
+                tipo_comprobante: nc.tipo_comprobante,
+                serie: nc.serie,
+                numero: nc.numero,
+                fecha_emision: nc.fecha_emision
+            }
+        });
+
+    } catch (error) {
+        logger.error('Error anulando comprobante', { id, serie, numero, error: error.message });
+        res.status(error.status || 500).json({
+            success: false,
+            error: error.message,
+            code: error.code
+        });
+    }
+});
+
+// Endpoint para crear cliente en Biller
+app.post('/api/clientes', async (req, res) => {
+    logger.info('👤 Creando cliente en Biller', { documento: req.body.documento });
+
+    try {
+        const resultado = await biller.crearCliente(req.body);
+        res.json({
+            success: true,
+            message: 'Cliente creado exitosamente',
+            ...resultado
+        });
+    } catch (error) {
+        logger.error('Error creando cliente', { error: error.message });
+        res.status(error.status || 500).json({
+            success: false,
+            error: error.message,
+            code: error.code
+        });
+    }
+});
+
+// Endpoint para crear producto en Biller
+app.post('/api/productos', async (req, res) => {
+    logger.info('📦 Creando producto en Biller', { codigo: req.body.codigo });
+
+    try {
+        const resultado = await biller.crearProducto(req.body);
+        res.json({
+            success: true,
+            message: 'Producto creado exitosamente',
+            ...resultado
+        });
+    } catch (error) {
+        logger.error('Error creando producto', { error: error.message });
+        res.status(error.status || 500).json({
+            success: false,
+            error: error.message,
+            code: error.code
+        });
+    }
+});
+
+// Endpoint para obtener comprobantes con filtros
+app.get('/api/comprobantes', async (req, res) => {
+    try {
+        const filtros = {
+            id: req.query.id,
+            sucursal: req.query.sucursal,
+            desde: req.query.desde,
+            hasta: req.query.hasta,
+            tipo_comprobante: req.query.tipo_comprobante,
+            serie: req.query.serie,
+            numero: req.query.numero,
+            numero_interno: req.query.numero_interno,
+            recibidos: req.query.recibidos === '1' || req.query.recibidos === 'true'
+        };
+
+        // Limpiar undefined
+        Object.keys(filtros).forEach(key => {
+            if (filtros[key] === undefined) delete filtros[key];
+        });
+
+        const resultado = await biller.obtenerComprobante(filtros);
+        res.json({
+            success: true,
+            data: resultado
+        });
+    } catch (error) {
+        logger.error('Error obteniendo comprobantes', { error: error.message });
+        res.status(error.status || 500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 app.get('/api/dashboard', (req, res) => {

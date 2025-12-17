@@ -64,29 +64,100 @@ class MLInvoiceUploaderWorker {
 
     /**
      * Procesar cola de PDFs pendientes de subir a ML
+     * Busca comprobantes con pdf_status 'pending' o 'ready' que no se hayan subido a ML
      */
     async processQueue() {
         try {
+            // Buscar comprobantes pendientes de subir a ML
+            // Incluye tanto los que tienen pdf_status 'pending' como 'ready'
             const pendientes = this.store.findPendingMLUpload?.() || [];
 
-            if (pendientes.length === 0) {
+            // También buscar comprobantes con pdf_status 'pending' que necesitan obtener el PDF primero
+            const pendientesPDF = this.store.findPDFsPending?.() || [];
+
+            if (pendientes.length === 0 && pendientesPDF.length === 0) {
                 return;
             }
 
-            logger.debug('📤 PDFs pendientes de subir a ML', { cantidad: pendientes.length });
+            // Primero procesar los que tienen PDF pendiente
+            if (pendientesPDF.length > 0) {
+                logger.debug('📥 Obteniendo PDFs de Biller', { cantidad: pendientesPDF.length });
 
-            for (const comp of pendientes) {
-                try {
-                    await this.uploadToML(comp);
-                } catch (error) {
-                    logger.error('Error subiendo a ML', {
-                        orderId: comp.ml_order_id || comp.order_id,
-                        error: error.message
-                    });
+                for (const comp of pendientesPDF) {
+                    try {
+                        await this.obtenerYMarcarPDF(comp);
+                    } catch (error) {
+                        logger.debug('PDF aún no disponible', {
+                            orderId: comp.ml_order_id || comp.order_id,
+                            error: error.message
+                        });
+                    }
+                }
+            }
+
+            // Luego subir los que tienen PDF listo
+            if (pendientes.length > 0) {
+                logger.debug('📤 PDFs pendientes de subir a ML', { cantidad: pendientes.length });
+
+                for (const comp of pendientes) {
+                    try {
+                        await this.uploadToML(comp);
+                    } catch (error) {
+                        logger.error('Error subiendo a ML', {
+                            orderId: comp.ml_order_id || comp.order_id,
+                            error: error.message
+                        });
+                    }
                 }
             }
         } catch (error) {
             logger.error('Error en ML Invoice Uploader', { error: error.message });
+        }
+    }
+
+    /**
+     * Obtener PDF de Biller y marcarlo como ready
+     * @param {Object} comp - Datos del comprobante
+     */
+    async obtenerYMarcarPDF(comp) {
+        const orderId = comp.ml_order_id || comp.order_id;
+        const billerId = comp.id;
+
+        if (!billerId) {
+            logger.warn('Comprobante sin biller ID', { orderId });
+            return;
+        }
+
+        try {
+            // Intentar obtener PDF de Biller
+            const pdfArrayBuffer = await this.biller.obtenerPDF(billerId);
+
+            if (!pdfArrayBuffer || pdfArrayBuffer.byteLength === 0) {
+                throw new Error('PDF vacío o no disponible');
+            }
+
+            // Marcar como ready
+            const pdfUrl = `${config.biller.baseUrl}/comprobantes/${billerId}/pdf`;
+            this.store.updatePDFStatus(billerId, 'ready', pdfUrl, null, (comp.pdf_attempt_count || 0) + 1);
+
+            logger.info('✅ PDF obtenido de Biller', {
+                orderId,
+                billerId,
+                size: `${(pdfArrayBuffer.byteLength / 1024).toFixed(2)}KB`
+            });
+
+        } catch (error) {
+            // Incrementar intentos
+            const attempts = (comp.pdf_attempt_count || 0) + 1;
+
+            if (attempts >= 10) {
+                this.store.updatePDFStatus(billerId, 'error', null, error.message, attempts);
+                logger.error('❌ PDF no disponible después de 10 intentos', { orderId, billerId });
+            } else {
+                this.store.updatePDFStatus(billerId, 'pending', null, error.message, attempts);
+            }
+
+            throw error;
         }
     }
 

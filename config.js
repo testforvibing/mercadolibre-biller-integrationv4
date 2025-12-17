@@ -7,54 +7,115 @@ require('dotenv').config();
 
 /**
  * Tipos de comprobantes fiscales electrónicos (CFE) en Uruguay
+ * Según documentación Biller API v2
  */
 const TIPOS_CFE = Object.freeze({
+  // e-Ticket
   E_TICKET: 101,
   NC_E_TICKET: 102,
   ND_E_TICKET: 103,
+  // e-Factura
   E_FACTURA: 111,
   NC_E_FACTURA: 112,
   ND_E_FACTURA: 113,
-  E_TICKET_CONTINGENCIA: 121,
-  NC_E_TICKET_CONTINGENCIA: 122,
-  ND_E_TICKET_CONTINGENCIA: 123,
-  E_FACTURA_CONTINGENCIA: 131,
-  NC_E_FACTURA_CONTINGENCIA: 132,
-  ND_E_FACTURA_CONTINGENCIA: 133
+  // e-Factura de exportación
+  E_FACTURA_EXPORTACION: 121,
+  NC_E_FACTURA_EXPORTACION: 122,
+  ND_E_FACTURA_EXPORTACION: 123,
+  E_REMITO_EXPORTACION: 124,
+  // e-Ticket Venta por cuenta ajena
+  E_TICKET_CUENTA_AJENA: 131,
+  NC_E_TICKET_CUENTA_AJENA: 132,
+  ND_E_TICKET_CUENTA_AJENA: 133,
+  // e-Factura Venta por cuenta ajena
+  E_FACTURA_CUENTA_AJENA: 141,
+  NC_E_FACTURA_CUENTA_AJENA: 142,
+  ND_E_FACTURA_CUENTA_AJENA: 143,
+  // eBoleta de entrada
+  E_BOLETA_ENTRADA: 151,
+  NC_E_BOLETA_ENTRADA: 152,
+  ND_E_BOLETA_ENTRADA: 153,
+  // Otros
+  E_REMITO: 181,
+  E_RESGUARDO: 182
 });
 
 /**
  * Tipos de documento de identidad
+ * Según documentación Biller API v2
  */
 const TIPOS_DOCUMENTO = Object.freeze({
+  RUT: 2,       // RUT (12 dígitos)
   CI: 3,        // Cédula de Identidad
-  RUT: 2,       // RUT
-  PASAPORTE: 4, // Pasaporte
-  OTRO: 5       // Otro
+  OTRO: 4,      // Otro
+  PASAPORTE: 5, // Pasaporte
+  DNI: 6,       // DNI (documento extranjero)
+  NIFE: 7       // NIFE
 });
 
 /**
  * Formas de pago
+ * Según documentación Biller API v2
  */
 const FORMAS_PAGO = Object.freeze({
+  CONTADO: 1,
+  CREDITO: 2,
+  // Aliases para compatibilidad
   EFECTIVO: 1,
-  TARJETA_CREDITO: 2,
-  TARJETA_DEBITO: 3,
-  TRANSFERENCIA: 4,
-  CREDITO: 5,
-  CHEQUE: 6,
-  OTRO: 99
+  OTRO: 1  // Default a contado
 });
 
 /**
- * Indicadores de IVA
+ * Indicadores de facturación para items
+ * Según documentación Biller API v2
  */
 const INDICADORES_IVA = Object.freeze({
-  EXENTO: 1,
-  GRAVADO_MINIMA: 2,   // 10%
-  GRAVADO_BASICA: 3,   // 22%
-  NO_GRAVADO: 4
+  EXENTO: 1,                    // Exento de IVA
+  GRAVADO_MINIMA: 2,            // Tasa mínima (10%)
+  GRAVADO_BASICA: 3,            // Tasa básica (22%)
+  OTRA_TASA: 4,                 // Otra tasa
+  ENTREGA_GRATUITA: 5,          // Entrega gratuita
+  NO_FACTURABLE: 6,             // Producto o servicio no facturable
+  NO_FACTURABLE_NEGATIVO: 7,    // Producto o servicio no facturable negativo
+  ITEM_REBAJAR: 8,              // Ítem a rebajar en e-remitos
+  ITEM_ANULAR: 9,               // Ítem a anular en resguardos
+  EXPORTACION: 10,              // Exportación y asimiladas
+  IMPUESTO_PERCIBIDO: 11,       // Impuesto percibido
+  IVA_SUSPENSO: 12,             // IVA en suspenso
+  VENDIDO_NO_CONTRIBUYENTE: 13, // Ítem vendido no contribuyente
+  VENDIDO_MONOTRIBUTO: 14,      // Ítem vendido contribuyente monotributo
+  VENDIDO_IMEBA: 15,            // Ítem vendido contribuyente IMEBA
+  VENDIDO_IVA_MINIMO: 16        // Ítem Vendido Contribuyente IVA mínimo, Monotributo o Monotributo MIDES
 });
+
+/**
+ * Tipos de descuento/recargo para items
+ * Según documentación Biller API v2
+ */
+const TIPOS_DESCUENTO = Object.freeze({
+  PORCENTAJE: '%',
+  MONTO: '$'
+});
+
+/**
+ * Códigos de país más comunes
+ */
+const PAISES = Object.freeze({
+  URUGUAY: 'UY',
+  ARGENTINA: 'AR',
+  BRASIL: 'BR',
+  ESTADOS_UNIDOS: 'US',
+  PARAGUAY: 'PY',
+  CHILE: 'CL',
+  ESPANA: 'ES',
+  MEXICO: 'MX'
+});
+
+/**
+ * Cliente sin receptor para e-Ticket
+ * Usar cuando no hay datos del comprador
+ */
+const CLIENTE_SIN_RECEPTOR = '-';
 
 /**
  * Configuración principal
@@ -65,6 +126,9 @@ const config = {
   TIPOS_DOCUMENTO,
   FORMAS_PAGO,
   INDICADORES_IVA,
+  TIPOS_DESCUENTO,
+  PAISES,
+  CLIENTE_SIN_RECEPTOR,
 
   // ============================================================
   // BILLER

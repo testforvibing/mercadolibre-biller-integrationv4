@@ -14,15 +14,8 @@ function getLimiteUIEnUYU() {
   return config.dgi?.limiteMontoUYU || 30000;
 }
 
-/**
- * Tipos de documento Uruguay
- */
-const TIPOS_DOCUMENTO = {
-  RUT: 2,
-  CI: 3,
-  PASAPORTE: 4,
-  OTRO: 5
-};
+// Usar tipos de documento de config
+const { TIPOS_DOCUMENTO } = config;
 
 /**
  * Determinar tipo de comprobante según datos del comprador
@@ -133,12 +126,13 @@ async function determinarTipoComprobante(orden, billingInfo = null) {
     };
   }
 
-  // CASO D: Sin datos → e-Ticket consumidor final
+  // CASO D: Sin datos → e-Ticket consumidor final (sin receptor)
+  // Según doc Biller: cliente: "-" para e-Ticket sin datos de receptor
   logger.info('🛒 Sin datos fiscales → e-Ticket consumidor final', { orderId: orden.id });
 
   return {
     tipo: config.TIPOS_CFE.E_TICKET, // 101
-    cliente: null,
+    cliente: config.CLIENTE_SIN_RECEPTOR,  // "-" según doc Biller
     requiereIdentificacion: false,
     razon: 'CONSUMIDOR_FINAL'
   };

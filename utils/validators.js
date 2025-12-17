@@ -346,23 +346,58 @@ function validarDatosComprobante(datos) {
       if (typeof item.precio !== 'number') {
         errors.push(`Item ${i}: precio inválido`);
       }
-      if (typeof item.indicador_facturacion !== 'number') {
-        errors.push(`Item ${i}: indicador_facturacion inválido`);
+      if (typeof item.indicador_facturacion !== 'number' ||
+          item.indicador_facturacion < 1 ||
+          item.indicador_facturacion > 16) {
+        errors.push(`Item ${i}: indicador_facturacion inválido (debe ser 1-16)`);
       }
     }
   }
   
-  // Cliente para e-Factura
-  if (datos.tipo_comprobante === config.TIPOS_CFE.E_FACTURA || 
+  // Cliente para e-Factura (siempre requerido con datos completos)
+  if (datos.tipo_comprobante === config.TIPOS_CFE.E_FACTURA ||
       datos.tipo_comprobante === config.TIPOS_CFE.NC_E_FACTURA) {
-    if (!datos.cliente) {
-      errors.push('e-Factura requiere datos del cliente');
-    } else {
+    if (!datos.cliente || datos.cliente === '-') {
+      errors.push('e-Factura requiere datos del cliente (no puede ser "-")');
+    } else if (typeof datos.cliente === 'object') {
       if (!datos.cliente.documento) {
         errors.push('Cliente sin número de documento');
       }
       if (!datos.cliente.razon_social && !datos.cliente.nombre_fantasia) {
         errors.push('Cliente sin razón social / nombre fantasía');
+      }
+      // Validar sucursal con pais (obligatorio según doc Biller)
+      if (!datos.cliente.sucursal?.pais) {
+        errors.push('Cliente sin país en sucursal (campo obligatorio)');
+      }
+    }
+  }
+
+  // Para e-Ticket: cliente puede ser "-" (sin receptor) o un objeto con datos
+  // Si es objeto, validar que tenga pais en sucursal
+  if (datos.tipo_comprobante === config.TIPOS_CFE.E_TICKET ||
+      datos.tipo_comprobante === config.TIPOS_CFE.NC_E_TICKET) {
+    if (datos.cliente && datos.cliente !== '-' && typeof datos.cliente === 'object') {
+      if (!datos.cliente.sucursal?.pais) {
+        errors.push('Cliente sin país en sucursal (campo obligatorio)');
+      }
+    }
+  }
+
+  // Venta por cuenta ajena requiere complementoFiscal
+  if (datos.tipo_comprobante === config.TIPOS_CFE.E_TICKET_CUENTA_AJENA ||
+      datos.tipo_comprobante === config.TIPOS_CFE.E_FACTURA_CUENTA_AJENA) {
+    if (!datos.complementoFiscal) {
+      errors.push('Venta por cuenta ajena requiere complementoFiscal');
+    } else {
+      if (!datos.complementoFiscal.nombre) {
+        errors.push('complementoFiscal sin nombre');
+      }
+      if (!datos.complementoFiscal.documento) {
+        errors.push('complementoFiscal sin documento');
+      }
+      if (!datos.complementoFiscal.pais) {
+        errors.push('complementoFiscal sin país');
       }
     }
   }

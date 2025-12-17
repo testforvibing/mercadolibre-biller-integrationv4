@@ -150,6 +150,30 @@ async function obtenerDetalleRetorno(claimId) {
     }
 }
 
+/**
+ * Handler para cuando una orden es cancelada
+ * Genera NC si la orden ya había sido facturada
+ * @param {Object} orden - Datos de la orden cancelada
+ * @returns {Object} Resultado del procesamiento
+ */
+async function handleOrdenCancelada(orden) {
+    logger.info('🚫 Procesando orden cancelada', { orderId: orden.id, status: orden.status });
+
+    try {
+        const resultado = await procesarCancelacion(orden);
+        return resultado;
+
+    } catch (error) {
+        logger.error('Error procesando orden cancelada', {
+            orderId: orden.id,
+            error: error.message,
+            stack: error.stack
+        });
+
+        throw error;
+    }
+}
+
 module.exports = {
     handleClaimWebhook,
     handleOrdenCancelada,

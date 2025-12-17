@@ -8,8 +8,64 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const { BillerClient } = require('../biller-client');
 const { getComprobanteStore } = require('../utils/store');
+const { getTokenManager } = require('../utils/token-manager');
 
 const billerClient = new BillerClient();
+
+/**
+ * Obtener orden de MercadoLibre para extraer monto total
+ * @param {string} orderId
+ * @returns {Object|null}
+ */
+async function obtenerOrdenML(orderId) {
+    try {
+        const tokenManager = getTokenManager();
+        const accessToken = await tokenManager.ensureValidToken();
+
+        const response = await fetch(
+            `https://api.mercadolibre.com/orders/${orderId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        if (!response.ok) {
+            logger.warn('No se pudo obtener orden de ML', { orderId, status: response.status });
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        logger.error('Error obteniendo orden ML', { orderId, error: error.message });
+        return null;
+    }
+}
+
+/**
+ * Calcular total de una orden de MercadoLibre
+ * @param {Object} order
+ * @returns {number}
+ */
+function calcularTotalOrden(order) {
+    if (!order) return 0;
+
+    // Usar total_amount si está disponible
+    if (order.total_amount && order.total_amount > 0) {
+        return parseFloat(order.total_amount);
+    }
+
+    // Calcular desde items + shipping
+    const itemsTotal = (order.order_items || []).reduce((sum, item) => {
+        return sum + (parseFloat(item.unit_price || 0) * (item.quantity || 1));
+    }, 0);
+
+    const shippingCost = order.shipping?.cost ? parseFloat(order.shipping.cost) : 0;
+
+    return itemsTotal + shippingCost;
+}
 
 // Función helper para obtener el store
 function getStore() {
@@ -38,23 +94,63 @@ async function procesarClaim(claim) {
         return { action: 'error', reason: 'no_order_id' };
     }
 
-    // 3. Buscar comprobante original
+    // 3. Buscar comprobante original en store local
     const store = getStore();
-    const comprobanteOriginal = store.findByOrderId(orderId);
+    let comprobanteOriginal = store.findByOrderId(orderId);
+
+    // Si no está en store local, buscar en Biller
     if (!comprobanteOriginal) {
-        logger.warn('⚠️ Claim sin comprobante original', { claimId, orderId });
+        logger.info('Comprobante no encontrado en store local, buscando en Biller...', { orderId, claimId });
+        const numeroInterno = `ML-${orderId}`;
+        const comprobanteEnBiller = await billerClient.buscarPorNumeroInterno(numeroInterno);
+
+        if (comprobanteEnBiller) {
+            // Calcular total desde refund_amount si está disponible
+            const totalEstimado = claim.refund_amount || 0;
+
+            comprobanteOriginal = {
+                ...comprobanteEnBiller,
+                ml_order_id: orderId,
+                total: totalEstimado,
+                monto_total: totalEstimado,
+                synced_from_biller: true
+            };
+
+            // Guardar en store local para futuras referencias
+            store.set(orderId, comprobanteOriginal);
+            logger.info('Comprobante encontrado en Biller y sincronizado', { orderId, billerId: comprobanteEnBiller.id });
+        }
+    }
+
+    if (!comprobanteOriginal) {
+        logger.warn('⚠️ Claim sin comprobante original (ni en store ni en Biller)', { claimId, orderId });
         return { action: 'error', reason: 'no_original_invoice' };
     }
 
-    // 4. Verificar que no exista NC previa
-    const ncExistente = store.findNCByOrderId(orderId);
-    if (ncExistente) {
+    // 4. Verificar que no exista NC previa en store local
+    let ncExistente = store.findNCByOrderId(orderId);
+
+    // También verificar en Biller si ya existe NC
+    if (!ncExistente) {
+        const ncNumeroInterno = `NC-ML-${orderId}`;
+        const ncEnBiller = await billerClient.buscarPorNumeroInterno(ncNumeroInterno);
+        if (ncEnBiller) {
+            logger.info('NC ya existe en Biller para este claim', { orderId, ncId: ncEnBiller.id });
+            store.addNC(orderId, { ...ncEnBiller, synced_from_biller: true });
+            return { action: 'skipped', reason: 'nc_exists_in_biller' };
+        }
+    } else {
         logger.info('NC ya existe para esta orden', { orderId, ncId: ncExistente.id });
         return { action: 'skipped', reason: 'nc_already_exists' };
     }
 
     // 5. Determinar monto de NC
     const montoNC = calcularMontoNC(claim, comprobanteOriginal);
+
+    if (!montoNC || montoNC <= 0) {
+        logger.error('No se pudo determinar el monto para la NC', { claimId, orderId });
+        return { action: 'error', reason: 'no_amount' };
+    }
 
     // 6. Emitir NC
     const nc = await emitirNotaCredito(claim, comprobanteOriginal, montoNC);
@@ -125,13 +221,82 @@ function calcularMontoNC(claim, comprobanteOriginal) {
 }
 
 /**
+ * Anular comprobante usando el endpoint /anular de Biller
+ *
+ * IMPORTANTE: Este método es PREFERIBLE a emitir NC manualmente porque:
+ * - Garantiza que los totales por indicador de IVA coincidan exactamente
+ * - No requiere calcular IVA ni especificar items manualmente
+ * - Evita errores como "el total para el indicador X es mayor a la suma por indicador"
+ *
+ * @param {Object} comprobanteOriginal - Comprobante a anular
+ * @param {string} orderId - ID de la orden de ML (para logging)
+ * @returns {Object} NC emitida por Biller
+ */
+async function anularComprobanteBiller(comprobanteOriginal, orderId) {
+    logger.info('🔄 Anulando comprobante via endpoint /anular', {
+        orderId,
+        comprobanteId: comprobanteOriginal.id,
+        serie: comprobanteOriginal.serie,
+        numero: comprobanteOriginal.numero,
+        tipo: comprobanteOriginal.tipo_comprobante
+    });
+
+    // Usar el endpoint de anulación de Biller
+    // Preferir ID si está disponible, sino usar tipo/serie/numero
+    const params = {
+        fecha_emision_hoy: true
+    };
+
+    if (comprobanteOriginal.id) {
+        params.id = comprobanteOriginal.id;
+    } else {
+        params.tipo_comprobante = comprobanteOriginal.tipo_comprobante;
+        params.serie = comprobanteOriginal.serie;
+        params.numero = comprobanteOriginal.numero;
+    }
+
+    const nc = await billerClient.anularComprobante(params);
+
+    logger.info('✅ Comprobante anulado exitosamente via /anular', {
+        orderId,
+        ncId: nc.id,
+        ncSerie: nc.serie,
+        ncNumero: nc.numero,
+        ncTipo: nc.tipo_comprobante
+    });
+
+    return nc;
+}
+
+/**
  * Emitir Nota de Crédito en Biller
- * @param {Object} claim 
- * @param {Object} comprobanteOriginal 
- * @param {number} monto 
+ *
+ * NOTA: Para anulaciones totales (cancelaciones, refunds completos),
+ * se usa anularComprobanteBiller() que llama al endpoint /anular.
+ * Esta función se mantiene para casos de NC parciales donde se necesita
+ * especificar items específicos.
+ *
+ * @param {Object} claim
+ * @param {Object} comprobanteOriginal
+ * @param {number} monto
+ * @param {boolean} [usarAnulacion=true] - Si true, usa endpoint /anular para anulación total
  * @returns {Object} NC emitida
  */
-async function emitirNotaCredito(claim, comprobanteOriginal, monto) {
+async function emitirNotaCredito(claim, comprobanteOriginal, monto, usarAnulacion = true) {
+    const orderId = claim.resource_id || claim.order_id;
+    const esRefundTotal = esAnulacionTotal(claim, comprobanteOriginal, monto);
+
+    // Para anulaciones totales, usar el endpoint /anular
+    // Esto evita errores de IVA y garantiza que los totales coincidan
+    if (usarAnulacion && esRefundTotal && comprobanteOriginal.id) {
+        logger.info('📋 Usando endpoint /anular para anulación total', { orderId, monto });
+        return await anularComprobanteBiller(comprobanteOriginal, orderId);
+    }
+
+    // Para refunds parciales o cuando no se puede usar /anular,
+    // emitir NC manualmente con items
+    logger.info('📋 Emitiendo NC manual (refund parcial o sin ID)', { orderId, monto, esRefundTotal });
+
     // Determinar tipo de NC según comprobante original
     const tipoNC = obtenerTipoNC(comprobanteOriginal.tipo_comprobante);
 
@@ -147,16 +312,22 @@ async function emitirNotaCredito(claim, comprobanteOriginal, monto) {
             new Date().toISOString().split('T')[0]
     }];
 
+    // Obtener fecha de hoy en formato dd/mm/aaaa (requerido por Biller)
+    const hoy = new Date();
+    const fechaEmision = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
+
     // Construir datos de NC
     const datosNC = {
         tipo_comprobante: tipoNC,
-        numero_interno: `NC-ML-${claim.resource_id || claim.order_id}-${Date.now()}`,
+        numero_interno: `NC-ML-${orderId}-${Date.now()}`,
         sucursal: config.biller.empresa.sucursal,
+        fecha_emision: fechaEmision,
         items: items,
         referencias: referencias,
-        razon: construirRazonNC(claim),
+        razon_referencia: construirRazonNC(claim),  // Razón de la referencia (requerido con referencias)
         forma_pago: config.FORMAS_PAGO.OTRO,
-        moneda: 'UYU'
+        moneda: 'UYU',
+        montos_brutos: 1  // Los precios de ML vienen con IVA incluido
     };
 
     // Incluir datos del cliente si el original los tenía
@@ -164,7 +335,7 @@ async function emitirNotaCredito(claim, comprobanteOriginal, monto) {
         datosNC.cliente = comprobanteOriginal.cliente;
     }
 
-    logger.info('Emitiendo NC', {
+    logger.info('Emitiendo NC manual', {
         tipo: tipoNC,
         monto,
         referenciaOriginal: `${comprobanteOriginal.serie}-${comprobanteOriginal.numero}`
@@ -175,18 +346,49 @@ async function emitirNotaCredito(claim, comprobanteOriginal, monto) {
 }
 
 /**
+ * Determinar si es una anulación total del comprobante
+ * @param {Object} claim
+ * @param {Object} comprobanteOriginal
+ * @param {number} monto
+ * @returns {boolean}
+ */
+function esAnulacionTotal(claim, comprobanteOriginal, monto) {
+    // Si la resolución es 'refunded' (no partial), es anulación total
+    const resolution = claim.resolution?.status || claim.resolution_status;
+    if (resolution === 'refunded') {
+        return true;
+    }
+
+    // Si el monto es igual al total original, es anulación total
+    const totalOriginal = comprobanteOriginal.total || comprobanteOriginal.monto_total;
+    if (totalOriginal && Math.abs(monto - totalOriginal) < 0.01) {
+        return true;
+    }
+
+    // Si es un claim de cancelación (simulado)
+    if (claim.id && claim.id.toString().startsWith('CANCEL-')) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Obtener tipo de NC según comprobante original
- * @param {number} tipoOriginal 
+ * Basado en documentación Biller API v2
+ * @param {number} tipoOriginal
  * @returns {number}
  */
 function obtenerTipoNC(tipoOriginal) {
-    // e-Ticket (101) → NC e-Ticket (102)
-    // e-Factura (111) → NC e-Factura (112)
     const mapeo = {
+        // CFEs estándar
         101: 102,  // e-Ticket → NC e-Ticket
         111: 112,  // e-Factura → NC e-Factura
-        121: 122,  // e-Ticket Contingencia → NC
-        131: 132   // e-Factura Contingencia → NC
+        // Exportaciones
+        121: 122,  // e-Factura exportación → NC e-Factura exportación
+        // Venta por cuenta ajena
+        131: 132,  // e-Ticket venta por cuenta ajena → NC
+        141: 142   // e-Factura venta por cuenta ajena → NC
     };
 
     return mapeo[tipoOriginal] || 102; // Default: NC e-Ticket
@@ -245,7 +447,7 @@ function construirRazonNC(claim) {
 /**
  * Procesar cancelación de orden
  * Emite NC si la orden ya estaba facturada
- * @param {Object} orden - Orden cancelada
+ * @param {Object} orden - Orden cancelada (puede venir incompleta, solo con id y status)
  * @returns {Object} Resultado
  */
 async function procesarCancelacion(orden) {
@@ -254,24 +456,118 @@ async function procesarCancelacion(orden) {
     }
 
     const orderId = orden.id;
-    logger.info('🚫 Procesando cancelación', { orderId });
+    logger.info('🚫 Procesando cancelación para NC', { orderId });
 
-    // Buscar comprobante original
+    // Buscar comprobante original en store local
     const store = getStore();
-    const comprobante = store.findByOrderId(orderId);
+    let comprobante = store.findByOrderId(orderId);
+
+    // Si no está en store local, buscar en Biller
     if (!comprobante) {
-        logger.info('Cancelación sin comprobante previo', { orderId });
+        logger.info('📍 Comprobante no en store local, buscando en Biller...', { orderId });
+        const numeroInterno = `ML-${orderId}`;
+        const comprobanteEnBiller = await billerClient.buscarPorNumeroInterno(numeroInterno);
+
+        if (comprobanteEnBiller) {
+            logger.info('✅ Comprobante encontrado en Biller', { orderId, billerId: comprobanteEnBiller.id });
+
+            // Obtener orden de ML para calcular el monto total
+            // porque Biller NO devuelve el monto en la búsqueda
+            let totalOrden = 0;
+
+            // Primero intentar calcular desde la orden que ya tenemos
+            if (orden.order_items && orden.order_items.length > 0) {
+                totalOrden = calcularTotalOrden(orden);
+                logger.debug('Monto calculado desde orden existente', { totalOrden });
+            } else if (orden.total_amount && orden.total_amount > 0) {
+                totalOrden = parseFloat(orden.total_amount);
+                logger.debug('Monto desde total_amount', { totalOrden });
+            } else {
+                // Si la orden viene incompleta, obtenerla de ML
+                logger.info('📥 Obteniendo orden completa de ML para calcular monto...', { orderId });
+                const ordenCompleta = await obtenerOrdenML(orderId);
+                if (ordenCompleta) {
+                    totalOrden = calcularTotalOrden(ordenCompleta);
+                    logger.info('Monto calculado desde ML', { orderId, totalOrden });
+                }
+            }
+
+            comprobante = {
+                ...comprobanteEnBiller,
+                ml_order_id: orderId,
+                total: totalOrden,
+                monto_total: totalOrden,
+                synced_from_biller: true
+            };
+
+            // Guardar en store local para futuras referencias
+            store.set(orderId, comprobante);
+            logger.info('Comprobante sincronizado a store local', { orderId, billerId: comprobanteEnBiller.id, total: totalOrden });
+        }
+    }
+
+    if (!comprobante) {
+        logger.info('⚠️ Cancelación sin comprobante previo (ni en store ni en Biller)', { orderId });
         return { action: 'skipped', reason: 'no_invoice' };
     }
 
-    // Verificar NC existente
-    const ncExistente = store.findNCByOrderId(orderId);
-    if (ncExistente) {
-        logger.info('NC ya existe para cancelación', { orderId });
+    logger.info('📋 Comprobante original encontrado', {
+        orderId,
+        comprobanteId: comprobante.id,
+        serie: comprobante.serie,
+        numero: comprobante.numero,
+        total: comprobante.total || comprobante.monto_total
+    });
+
+    // Verificar NC existente en store local
+    let ncExistente = store.findNCByOrderId(orderId);
+
+    // También verificar en Biller si ya existe NC (buscar con diferentes formatos)
+    if (!ncExistente) {
+        // Formato 1: NC-ML-{orderId}
+        const ncNumeroInterno1 = `NC-ML-${orderId}`;
+        let ncEnBiller = await billerClient.buscarPorNumeroInterno(ncNumeroInterno1);
+
+        // Formato 2: NC-ML-{orderId}-{timestamp} (puede haber varios, buscar el base)
+        if (!ncEnBiller) {
+            // Intenta búsqueda parcial si la API lo soporta
+            logger.debug('Buscando NC con formato alternativo...', { orderId });
+        }
+
+        if (ncEnBiller) {
+            logger.info('⚠️ NC ya existe en Biller para esta cancelación', { orderId, ncId: ncEnBiller.id });
+            store.addNC(orderId, { ...ncEnBiller, synced_from_biller: true });
+            return { action: 'skipped', reason: 'nc_exists_in_biller' };
+        }
+    } else {
+        logger.info('⚠️ NC ya existe en store local', { orderId, ncId: ncExistente.id });
         return { action: 'skipped', reason: 'nc_exists' };
     }
 
-    // Crear claim simulado para usar la misma lógica
+    // Determinar monto para NC
+    let monto = comprobante.total || comprobante.monto_total;
+
+    // Si aún no tenemos monto, intentar obtenerlo de la orden
+    if (!monto || monto <= 0) {
+        logger.warn('Monto no disponible en comprobante, obteniendo de ML...', { orderId });
+        const ordenML = await obtenerOrdenML(orderId);
+        if (ordenML) {
+            monto = calcularTotalOrden(ordenML);
+        }
+    }
+
+    if (!monto || monto <= 0) {
+        logger.error('❌ No se pudo determinar el monto para la NC', {
+            orderId,
+            comprobanteTotal: comprobante.total,
+            comprobanteMontoTotal: comprobante.monto_total
+        });
+        return { action: 'error', reason: 'no_amount' };
+    }
+
+    logger.info('💰 Monto determinado para NC', { orderId, monto });
+
+    // Crear claim simulado para usar la misma lógica de emisión
     const claimSimulado = {
         id: `CANCEL-${orderId}`,
         status: 'closed',
@@ -281,12 +577,18 @@ async function procesarCancelacion(orden) {
     };
 
     // Emitir NC
-    const monto = comprobante.total || comprobante.monto_total;
+    logger.info('📝 Emitiendo NC en Biller...', { orderId, monto, tipoOriginal: comprobante.tipo_comprobante });
     const nc = await emitirNotaCredito(claimSimulado, comprobante, monto);
 
     store.addNC(orderId, nc);
 
-    logger.info('✅ NC emitida por cancelación', { orderId, ncId: nc.id });
+    logger.info('✅ NC emitida exitosamente por cancelación', {
+        orderId,
+        ncId: nc.id,
+        ncSerie: nc.serie,
+        ncNumero: nc.numero,
+        monto
+    });
 
     return { action: 'nc_emitted', nc };
 }
@@ -297,5 +599,7 @@ module.exports = {
     debeEmitirNC,
     calcularMontoNC,
     emitirNotaCredito,
+    anularComprobanteBiller,
+    esAnulacionTotal,
     obtenerTipoNC
 };

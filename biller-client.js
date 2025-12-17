@@ -296,13 +296,15 @@ class BillerClient {
       ...rest
     } = datos;
 
+    // Defaults primero, luego datos del usuario para que puedan sobreescribir
     const datosCompletos = {
       moneda: 'UYU',
-      montos_brutos: 0,
-      forma_pago: datos.forma_pago || 1,
-      numero_interno: datos.numero_interno || datos.numero_orden || `ml-${Date.now()}`,
+      montos_brutos: 0,  // Default: precios sin IVA (se sobreescribe si datos trae montos_brutos)
+      forma_pago: 1,     // Default: contado
       sucursal: sucursalId,
-      ...rest
+      ...rest,  // Los datos del usuario sobreescriben los defaults
+      // Estos campos se calculan siempre
+      numero_interno: datos.numero_interno || datos.numero_orden || `ml-${Date.now()}`
     };
 
     const validacion = validarDatosComprobante(datosCompletos);
@@ -361,15 +363,38 @@ class BillerClient {
 
   /**
    * Obtener string descriptivo del tipo de comprobante
+   * Basado en documentación Biller API v2
    */
   getTipoComprobanteStr(tipo) {
     const tipos = {
+      // e-Ticket
       101: 'e-Ticket',
       102: 'NC e-Ticket',
       103: 'ND e-Ticket',
+      // e-Factura
       111: 'e-Factura',
       112: 'NC e-Factura',
-      113: 'ND e-Factura'
+      113: 'ND e-Factura',
+      // e-Factura exportación
+      121: 'e-Factura Exportación',
+      122: 'NC e-Factura Exportación',
+      123: 'ND e-Factura Exportación',
+      124: 'eRemito Exportación',
+      // e-Ticket venta por cuenta ajena
+      131: 'e-Ticket Venta Cuenta Ajena',
+      132: 'NC e-Ticket Venta Cuenta Ajena',
+      133: 'ND e-Ticket Venta Cuenta Ajena',
+      // e-Factura venta por cuenta ajena
+      141: 'e-Factura Venta Cuenta Ajena',
+      142: 'NC e-Factura Venta Cuenta Ajena',
+      143: 'ND e-Factura Venta Cuenta Ajena',
+      // eBoleta de entrada
+      151: 'eBoleta Entrada',
+      152: 'NC eBoleta Entrada',
+      153: 'ND eBoleta Entrada',
+      // Otros
+      181: 'eRemito',
+      182: 'eResguardo'
     };
     return tipos[tipo] || `CFE ${tipo}`;
   }
@@ -490,28 +515,240 @@ class BillerClient {
   }
 
   /**
-   * Obtener comprobante por ID
-   * @param {string|number} id
+   * Obtener comprobante(s) con filtros avanzados
+   * Según documentación Biller API v2 - GET /v2/comprobantes/obtener
+   *
+   * @param {Object} filtros - Filtros de búsqueda
+   * @param {number} [filtros.id] - ID del CFE (si se pasa, incluye items)
+   * @param {number} [filtros.sucursal] - Sucursal emisora
+   * @param {string} [filtros.desde] - Fecha desde (aaaa-mm-dd hh:mm:ss)
+   * @param {string} [filtros.hasta] - Fecha hasta (aaaa-mm-dd hh:mm:ss)
+   * @param {number} [filtros.tipo_comprobante] - Tipo CFE (requiere serie y numero)
+   * @param {string} [filtros.serie] - Serie (requiere tipo_comprobante y numero)
+   * @param {number} [filtros.numero] - Número DGI (requiere tipo_comprobante y serie)
+   * @param {string} [filtros.numero_interno] - Identificador interno único
+   * @param {boolean} [filtros.recibidos=false] - Obtener comprobantes recibidos
+   * @returns {Object|Array} Comprobante(s) encontrado(s)
    */
-  async obtenerComprobante(id) {
-    return this.request('GET', `/comprobantes/${id}`);
+  async obtenerComprobante(filtros = {}) {
+    const params = new URLSearchParams();
+
+    // Si es solo un ID numérico, mantener compatibilidad
+    if (typeof filtros === 'number' || typeof filtros === 'string') {
+      params.append('id', filtros);
+    } else {
+      if (filtros.id) params.append('id', filtros.id);
+      if (filtros.sucursal) params.append('sucursal', filtros.sucursal);
+      if (filtros.desde) params.append('desde', filtros.desde);
+      if (filtros.hasta) params.append('hasta', filtros.hasta);
+      if (filtros.tipo_comprobante) params.append('tipo_comprobante', filtros.tipo_comprobante);
+      if (filtros.serie) params.append('serie', filtros.serie);
+      if (filtros.numero) params.append('numero', filtros.numero);
+      if (filtros.numero_interno) params.append('numero_interno', filtros.numero_interno);
+      if (filtros.recibidos) params.append('recibidos', '1');
+    }
+
+    const query = params.toString();
+    return this.request('GET', `/comprobantes/obtener${query ? '?' + query : ''}`);
   }
 
   /**
-   * Listar comprobantes con filtros
+   * Listar comprobantes con filtros (alias simplificado)
    * @param {Object} filtros
    */
   async listarComprobantes(filtros = {}) {
-    const params = new URLSearchParams();
-    
-    if (filtros.desde) params.append('desde', filtros.desde);
-    if (filtros.hasta) params.append('hasta', filtros.hasta);
-    if (filtros.tipo) params.append('tipo_comprobante', filtros.tipo);
-    if (filtros.limite) params.append('limit', filtros.limite);
-    if (filtros.pagina) params.append('page', filtros.pagina);
-    
-    const query = params.toString();
-    return this.request('GET', `/comprobantes${query ? '?' + query : ''}`);
+    return this.obtenerComprobante(filtros);
+  }
+
+  /**
+   * Crear cliente en Biller
+   * Permite crear clientes sin emitir comprobante
+   * Según documentación Biller API v2 - POST /v2/clientes/crear
+   *
+   * @param {Object} datos - Datos del cliente
+   * @param {string} [datos.razon_social] - Nombre para RUT/NIFE (max 70)
+   * @param {string} [datos.nombre_fantasia] - Nombre para CI/Pasaporte/DNI (max 30)
+   * @param {number} datos.tipo_documento - 2=RUT, 3=CI, 4=Otro, 5=Pasaporte, 6=DNI, 7=NIFE
+   * @param {string} datos.documento - Número de documento
+   * @param {string} [datos.direccion] - Dirección (max 70)
+   * @param {string} [datos.ciudad] - Ciudad (max 30)
+   * @param {string} [datos.departamento] - Departamento (max 30)
+   * @param {string} datos.pais - Código país (UY, AR, BR, etc.) - OBLIGATORIO
+   * @param {string[]} [datos.emails] - Emails para envío de PDF
+   * @returns {Object} { cliente: ID, sucursal: ID }
+   */
+  async crearCliente(datos) {
+    // Validar campo obligatorio
+    if (!datos.pais) {
+      throw new BillerError(
+        'El campo pais es obligatorio para crear cliente',
+        'VALIDATION_ERROR',
+        400,
+        null
+      );
+    }
+
+    if (!datos.documento) {
+      throw new BillerError(
+        'El campo documento es obligatorio para crear cliente',
+        'VALIDATION_ERROR',
+        400,
+        null
+      );
+    }
+
+    logger.info('Creando cliente en Biller', {
+      tipo_documento: datos.tipo_documento,
+      documento: datos.documento ? `***${datos.documento.slice(-4)}` : 'N/A',
+      pais: datos.pais
+    });
+
+    const response = await this.requestWithRetry(
+      'POST',
+      '/clientes/crear',
+      datos,
+      'crear-cliente'
+    );
+
+    logger.info('✅ Cliente creado exitosamente', {
+      clienteId: response.cliente,
+      sucursalId: response.sucursal
+    });
+
+    return {
+      cliente: response.cliente,
+      sucursal: response.sucursal
+    };
+  }
+
+  /**
+   * Crear producto/servicio en Biller
+   * Permite crear productos sin emitir comprobante
+   * Según documentación Biller API v2 - POST /v2/productos/cargar
+   *
+   * @param {Object} datos - Datos del producto
+   * @param {string} datos.codigo - Código del producto (max 35)
+   * @param {string} datos.nombre - Nombre/concepto del producto (max 80)
+   * @param {string} [datos.descripcion] - Descripción adicional
+   * @param {string} [datos.moneda='UYU'] - Moneda del precio
+   * @param {number} datos.precio - Precio unitario
+   * @param {number} datos.indicador_facturacion - Indicador IVA (1-16)
+   * @param {number} [datos.inventario] - Cantidad en stock
+   * @param {boolean} [datos.es_servicio=false] - true=servicio, false=producto con stock
+   * @returns {Object} { id: ID del producto }
+   */
+  async crearProducto(datos) {
+    if (!datos.codigo || !datos.nombre) {
+      throw new BillerError(
+        'Los campos codigo y nombre son obligatorios',
+        'VALIDATION_ERROR',
+        400,
+        null
+      );
+    }
+
+    const datosProducto = {
+      moneda: 'UYU',
+      es_servicio: false,
+      ...datos
+    };
+
+    logger.info('Creando producto en Biller', {
+      codigo: datos.codigo,
+      nombre: datos.nombre,
+      precio: datos.precio
+    });
+
+    const response = await this.requestWithRetry(
+      'POST',
+      '/productos/cargar',
+      datosProducto,
+      'crear-producto'
+    );
+
+    logger.info('✅ Producto creado exitosamente', {
+      productoId: response.id
+    });
+
+    return {
+      id: response.id
+    };
+  }
+
+  /**
+   * Anular comprobante mediante endpoint de Biller
+   * Crea automáticamente una NC que anula el comprobante original en su totalidad
+   *
+   * IMPORTANTE: Este método es preferible a emitir NC manualmente porque:
+   * - Garantiza que los totales por indicador de IVA coincidan exactamente
+   * - No requiere calcular IVA ni especificar items
+   * - Evita errores de "total para el indicador X es mayor a la suma por indicador"
+   *
+   * @param {Object} params - Parámetros de anulación
+   * @param {number} [params.id] - ID del comprobante a anular (obligatorio si no se usa tipo/serie/numero)
+   * @param {number} [params.tipo_comprobante] - Tipo del comprobante a anular
+   * @param {string} [params.serie] - Serie del comprobante a anular
+   * @param {number} [params.numero] - Número del comprobante a anular
+   * @param {boolean} [params.fecha_emision_hoy=true] - Si la NC debe tener fecha de hoy
+   * @returns {Object} Datos de la NC creada (id, tipo_comprobante, serie, numero, hash, fecha_emision)
+   */
+  async anularComprobante(params) {
+    // Validar que se proporcionen los parámetros necesarios
+    const tieneId = params.id != null;
+    const tieneSerieNumero = params.tipo_comprobante && params.serie && params.numero != null;
+
+    if (!tieneId && !tieneSerieNumero) {
+      throw new BillerError(
+        'Debe proporcionar id o (tipo_comprobante, serie, numero) para anular',
+        'VALIDATION_ERROR',
+        400,
+        null
+      );
+    }
+
+    // Construir datos para la API
+    const datos = {
+      fecha_emision_hoy: params.fecha_emision_hoy !== false ? 1 : 0
+    };
+
+    if (tieneId) {
+      datos.id = params.id;
+    } else {
+      datos.tipo_comprobante = params.tipo_comprobante;
+      datos.serie = params.serie;
+      datos.numero = params.numero;
+    }
+
+    logger.info('Anulando comprobante en Biller', {
+      id: datos.id,
+      tipo: datos.tipo_comprobante,
+      serie: datos.serie,
+      numero: datos.numero
+    });
+
+    const response = await this.requestWithRetry(
+      'POST',
+      '/comprobantes/anular',
+      datos,
+      'anular-comprobante'
+    );
+
+    logger.info('✅ Comprobante anulado exitosamente', {
+      ncId: response.id,
+      ncTipo: response.tipo_comprobante,
+      ncSerie: response.serie,
+      ncNumero: response.numero,
+      fecha: response.fecha_emision
+    });
+
+    return {
+      id: response.id,
+      tipo_comprobante: response.tipo_comprobante,
+      serie: response.serie,
+      numero: response.numero,
+      hash: response.hash,
+      fecha_emision: response.fecha_emision
+    };
   }
 }
 
