@@ -31,9 +31,9 @@ Antes de usar esta integración necesitas:
 - Obtener **App ID** y **App Secret**
 - Configurar los webhooks apuntando a tu servidor
 
-### 3. URL Pública
+### 3. Servidor Web
+- Despliega en [Render](https://render.com), Heroku, Railway, o similar
 - El servidor debe ser accesible desde internet para recibir webhooks
-- Puedes usar [ngrok](https://ngrok.com) para desarrollo local
 
 ---
 
@@ -41,8 +41,8 @@ Antes de usar esta integración necesitas:
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/MateoFabregat/mercdolibre-biller-integrationv3.git
-cd mercdolibre-biller-integrationv3
+git clone https://github.com/testforvibing/mercadolibre-biller-integrationv4.git
+cd mercadolibre-biller-integrationv4
 
 # 2. Instalar dependencias
 npm install
@@ -64,7 +64,7 @@ Copia `.env.example` a `.env` y completa con tus credenciales:
 ```env
 # Servidor
 SERVER_PORT=3000
-SERVER_PUBLIC_URL=https://tu-url.ngrok-free.app  # URL pública para webhooks
+SERVER_PUBLIC_URL=https://tu-app.onrender.com  # URL pública para webhooks
 
 # Biller - Facturación Electrónica
 BILLER_ENVIRONMENT=test                # 'test' o 'production'
@@ -88,6 +88,21 @@ ML_COUNTRY=UY
 1. Ve a `https://tu-servidor/auth/mercadolibre` en tu navegador
 2. Autoriza la aplicación en MercadoLibre
 3. Los tokens se guardan automáticamente en `./data/tokens.json`
+
+---
+
+## Despliegue en Render
+
+1. Crea una cuenta en [render.com](https://render.com)
+2. Conecta tu repositorio de GitHub
+3. Crea un nuevo "Web Service" con:
+   - **Build Command**: `npm install`
+   - **Start Command**: `node server-v3.js`
+   - **Health Check Path**: `/health`
+4. Agrega las variables de entorno o sube tu `.env` como Secret File
+5. Despliega
+
+Tu URL pública será: `https://tu-app.onrender.com`
 
 ---
 
@@ -115,7 +130,7 @@ El servidor escuchará webhooks de MercadoLibre y procesará las ventas automát
 
 ### Dashboard
 
-Accede a `http://localhost:3000/dashboard` para ver:
+Accede a `https://tu-app.onrender.com/dashboard` para ver:
 - Comprobantes emitidos (total, hoy, por tipo)
 - Estado de webhooks y cola de procesamiento
 - Errores recientes
@@ -202,7 +217,7 @@ Para que otra persona use esta integración con **su propia cuenta**, solo neces
 3. Completar con **sus propias credenciales**:
    - Credenciales de su cuenta Biller
    - Credenciales de su aplicación MercadoLibre
-   - Su URL pública (ngrok u otro)
+   - Su URL pública (ej: `https://su-app.onrender.com`)
 4. Ejecutar `npm install && node server-v3.js`
 
 No se comparte ningún código sensible - todas las credenciales están en variables de entorno.
@@ -211,7 +226,7 @@ No se comparte ningún código sensible - todas las credenciales están en varia
 
 ## Soporte
 
-- **Issues**: [GitHub Issues](https://github.com/MateoFabregat/mercdolibre-biller-integrationv3/issues)
+- **Issues**: [GitHub Issues](https://github.com/testforvibing/mercadolibre-biller-integrationv4/issues)
 - **Documentación Biller**: [biller.uy/docs](https://biller.uy/docs)
 - **API MercadoLibre**: [developers.mercadolibre.com.uy](https://developers.mercadolibre.com.uy)
 

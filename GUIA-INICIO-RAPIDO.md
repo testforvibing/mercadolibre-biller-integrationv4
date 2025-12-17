@@ -5,7 +5,7 @@
 - Node.js v18 o superior
 - Cuenta de vendedor en MercadoLibre Uruguay
 - Cuenta en Biller (test o producción)
-- ngrok o túnel similar para exponer webhooks
+- Servidor desplegado en Render (o similar)
 
 ---
 
@@ -24,7 +24,7 @@ Variables requeridas:
 ```env
 # SERVIDOR
 SERVER_PORT=3000
-SERVER_PUBLIC_URL=https://tu-url.ngrok-free.app
+SERVER_PUBLIC_URL=https://tu-app.onrender.com
 
 # BILLER
 BILLER_ENVIRONMENT=test
@@ -46,38 +46,34 @@ LOG_LEVEL=info
 
 ---
 
-## 2. Iniciar los Servidores
+## 2. Despliegue en Render
 
-### Paso 1: Instalar dependencias
+### Paso 1: Crear servicio en Render
 
-```bash
-npm install
-```
+1. Ve a [render.com](https://render.com) y crea una cuenta
+2. Conecta tu repositorio de GitHub
+3. Crea un nuevo "Web Service"
+4. Configura:
+   - **Build Command**: `npm install`
+   - **Start Command**: `node server-v3.js`
+   - **Health Check Path**: `/health`
 
-### Paso 2: Iniciar ngrok (en una terminal separada)
+### Paso 2: Configurar variables de entorno
 
-```bash
-ngrok http 3000
-```
+En Render, agrega todas las variables de tu `.env` en la sección "Environment".
 
-Copia la URL pública (ej: `https://abc123.ngrok-free.app`) y actualiza `SERVER_PUBLIC_URL` en tu `.env`.
+También puedes subir tu archivo `.env` como "Secret File".
 
-### Paso 3: Iniciar el servidor principal
+### Paso 3: Desplegar
 
-```bash
-node server-v3.js
-```
+Render desplegará automáticamente cuando hagas push a tu repositorio.
 
-**Esto inicia automáticamente:**
-- Servidor HTTP en puerto 3000
-- Worker de subida de facturas a ML (cada 30 segundos)
-- Worker de procesamiento de webhooks (cada 60 segundos)
-- Auto-guardado de datos (cada 30 segundos)
+Tu URL pública será algo como: `https://tu-app.onrender.com`
 
 ### Verificar que está corriendo
 
 ```bash
-curl http://localhost:3000/health
+curl https://tu-app.onrender.com/health
 ```
 
 Deberías ver:
@@ -97,7 +93,7 @@ Deberías ver:
 
 1. Abre en tu navegador:
    ```
-   http://localhost:3000/auth/mercadolibre
+   https://tu-app.onrender.com/auth/mercadolibre
    ```
 
 2. Inicia sesión con tu cuenta de MercadoLibre
@@ -119,7 +115,7 @@ curl -X POST "https://api.mercadolibre.com/applications/TU_APP_ID/notifications"
   -H "Authorization: Bearer TU_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://tu-url.ngrok-free.app/webhooks/mercadolibre",
+    "url": "https://tu-app.onrender.com/webhooks/mercadolibre",
     "topics": ["orders_v2", "claims"]
   }'
 ```
@@ -128,7 +124,7 @@ curl -X POST "https://api.mercadolibre.com/applications/TU_APP_ID/notifications"
 
 1. Ve a https://developers.mercadolibre.com.uy
 2. Entra a tu aplicación
-3. Configura la URL de webhooks: `https://tu-url.ngrok-free.app/webhooks/mercadolibre`
+3. Configura la URL de webhooks: `https://tu-app.onrender.com/webhooks/mercadolibre`
 4. Selecciona los topics: `orders_v2`, `claims`
 
 ---
@@ -170,7 +166,7 @@ Devolución/Cancelación → Webhook claims → Buscar factura original → Emit
 
 ```bash
 # Para la orden 2000010597823859:
-curl -X POST http://localhost:3000/api/emitir-nc/2000010597823859
+curl -X POST https://tu-app.onrender.com/api/emitir-nc/2000010597823859
 ```
 
 Esto buscará la factura original en Biller y emitirá la NC correspondiente.
@@ -183,17 +179,17 @@ Esto buscará la factura original en Biller y emitirá la NC correspondiente.
 
 Abre en tu navegador:
 ```
-http://localhost:3000/dashboard
+https://tu-app.onrender.com/dashboard
 ```
 
 ### Ver logs en tiempo real
 
-Los logs se muestran en la consola donde iniciaste el servidor.
+En Render, ve a la sección "Logs" de tu servicio para ver los logs en tiempo real.
 
 ### Métricas para Prometheus
 
 ```
-http://localhost:3000/metrics
+https://tu-app.onrender.com/metrics
 ```
 
 ---
@@ -202,29 +198,16 @@ http://localhost:3000/metrics
 
 ### Cambiar a ambiente de producción de Biller
 
-En `.env`:
+En las variables de entorno de Render:
 ```env
 BILLER_ENVIRONMENT=production
 BILLER_TOKEN=tu_token_de_produccion
 ```
 
-### Usar PM2 para mantener el servidor corriendo
+### Auto-deploy
 
-```bash
-npm install -g pm2
-pm2 start server-v3.js --name "ml-biller"
-pm2 save
-pm2 startup
-```
-
-### Comandos PM2 útiles
-
-```bash
-pm2 logs ml-biller    # Ver logs
-pm2 restart ml-biller # Reiniciar
-pm2 stop ml-biller    # Detener
-pm2 status           # Estado
-```
+Render despliega automáticamente cuando haces push a tu repositorio.
+Puedes desactivar esto en la configuración si prefieres despliegues manuales.
 
 ---
 
@@ -232,17 +215,17 @@ pm2 status           # Estado
 
 ### El PDF no se sube a MercadoLibre
 
-1. Verifica que `ML_INVOICE_UPLOAD_ENABLED=true` en `.env`
-2. Revisa los logs para ver errores del worker
+1. Verifica que `ML_INVOICE_UPLOAD_ENABLED=true` en las variables de entorno
+2. Revisa los logs en Render para ver errores del worker
 3. Verifica que el token de ML sea válido
 
 ### Los webhooks no llegan
 
-1. Verifica que ngrok esté corriendo
-2. Verifica que `SERVER_PUBLIC_URL` sea correcto
+1. Verifica que `SERVER_PUBLIC_URL` sea correcto en las variables de entorno
+2. Verifica que la URL de webhooks en ML apunte a tu servidor de Render
 3. Prueba el endpoint manualmente:
    ```bash
-   curl -X POST http://localhost:3000/webhooks/mercadolibre \
+   curl -X POST https://tu-app.onrender.com/webhooks/mercadolibre \
      -H "Content-Type: application/json" \
      -d '{"topic":"test","resource":"/test/123"}'
    ```
@@ -255,7 +238,7 @@ El sistema renueva tokens automáticamente. Si falla:
 
 ### La factura no se emite
 
-1. Verifica conexión con Biller: `curl http://localhost:3000/health`
+1. Verifica conexión con Biller: `curl https://tu-app.onrender.com/health`
 2. Revisa que `BILLER_TOKEN` y `BILLER_EMPRESA_ID` sean correctos
 3. Verifica los logs para ver el error específico
 
@@ -276,15 +259,13 @@ El sistema renueva tokens automáticamente. Si falla:
 ## Resumen de Comandos
 
 ```bash
-# Desarrollo
+# Desarrollo local
 npm install                    # Instalar dependencias
 node server-v3.js              # Iniciar servidor
 
-# Producción con PM2
-pm2 start server-v3.js --name ml-biller
-pm2 logs ml-biller
-pm2 restart ml-biller
+# Verificar salud del servidor
+curl https://tu-app.onrender.com/health
 
-# ngrok (terminal separada)
-ngrok http 3000
+# Ver dashboard
+# Abre: https://tu-app.onrender.com/dashboard
 ```

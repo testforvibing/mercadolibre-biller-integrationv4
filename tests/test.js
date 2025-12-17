@@ -8,7 +8,7 @@ process.env.BILLER_TOKEN = 'test';
 process.env.BILLER_EMPRESA_ID = '1';
 process.env.ML_APP_ID = 'test';
 process.env.ML_APP_SECRET = 'test';
-process.env.SERVER_PUBLIC_URL = 'https://test.ngrok.app';
+process.env.SERVER_PUBLIC_URL = 'https://test.onrender.com';
 
 const { validarRUT, extraerRUTDePedido, validarPedido } = require('../utils/validators');
 
