@@ -493,8 +493,8 @@ app.get('/auth/mercadolibre/callback', async (req, res) => {
             return res.status(400).json({ error: data.error, message: data.message });
         }
 
-        // Guardar tokens
-        tokenManager.updateTokens(
+        // Guardar tokens (ahora es async para persistir en Render)
+        await tokenManager.updateTokens(
             data.access_token,
             data.refresh_token,
             data.expires_in,
@@ -503,14 +503,34 @@ app.get('/auth/mercadolibre/callback', async (req, res) => {
 
         logger.info('OAuth completado', { userId: data.user_id });
 
+        // Verificar si Render API está configurada
+        const renderConfigured = !!(process.env.RENDER_API_KEY && process.env.RENDER_SERVICE_ID);
+
         res.send(`
             <html>
             <head><title>Autorización exitosa</title></head>
             <body style="font-family: Arial; padding: 40px; text-align: center;">
-                <h1>Autorización exitosa</h1>
+                <h1>✅ Autorización exitosa</h1>
                 <p>Usuario ID: <strong>${data.user_id}</strong></p>
-                <p>Token guardado correctamente.</p>
-                <p>Ya puedes cerrar esta ventana.</p>
+                <p>Token expira: <strong>${new Date(Date.now() + (data.expires_in * 1000)).toLocaleString()}</strong></p>
+                <hr style="margin: 20px 0;">
+                ${renderConfigured
+                    ? '<p style="color: green;">✅ Tokens guardados en Render (persistente)</p>'
+                    : `<div style="background: #fff3cd; padding: 15px; border-radius: 5px; text-align: left;">
+                        <p style="color: #856404; margin: 0 0 10px 0;"><strong>⚠️ Tokens solo en memoria</strong></p>
+                        <p style="margin: 0; font-size: 14px;">Para persistencia permanente, configura en Render:</p>
+                        <ul style="font-size: 12px; margin: 10px 0;">
+                            <li><code>RENDER_API_KEY</code> - Tu API key de Render</li>
+                            <li><code>RENDER_SERVICE_ID</code> - ID del servicio (srv-xxx)</li>
+                        </ul>
+                        <p style="margin: 10px 0 0 0; font-size: 12px;">O copia estos valores a tus variables de entorno manualmente:</p>
+                        <pre style="background: #f8f9fa; padding: 10px; font-size: 11px; overflow-x: auto;">ML_ACCESS_TOKEN=${data.access_token}
+ML_REFRESH_TOKEN=${data.refresh_token}
+ML_TOKEN_EXPIRES_AT=${new Date(Date.now() + (data.expires_in * 1000)).toISOString()}
+ML_USER_ID=${data.user_id}</pre>
+                    </div>`
+                }
+                <p style="margin-top: 20px;">Ya puedes cerrar esta ventana.</p>
             </body>
             </html>
         `);
@@ -518,6 +538,76 @@ app.get('/auth/mercadolibre/callback', async (req, res) => {
     } catch (err) {
         logger.error('Error en callback OAuth', { error: err.message });
         res.status(500).send(`Error: ${err.message}`);
+    }
+});
+
+// ============================================================
+// API DE TOKENS ML
+// ============================================================
+
+// GET /api/tokens - Ver estado de tokens (sin revelar valores completos)
+app.get('/api/tokens', (req, res) => {
+    const tokens = tokenManager.getTokens();
+    res.json({
+        success: true,
+        tokens,
+        renderApiConfigured: !!(process.env.RENDER_API_KEY && process.env.RENDER_SERVICE_ID),
+        hint: tokens.isExpired
+            ? 'Token expirado. Re-autoriza en /auth/mercadolibre'
+            : tokens.isExpiringSoon
+                ? 'Token por expirar. Se renovará automáticamente.'
+                : 'Token válido'
+    });
+});
+
+// POST /api/tokens - Establecer tokens manualmente
+app.post('/api/tokens', async (req, res) => {
+    const { accessToken, refreshToken, expiresAt, userId } = req.body;
+
+    if (!accessToken || !refreshToken) {
+        return res.status(400).json({
+            success: false,
+            error: 'Se requieren accessToken y refreshToken'
+        });
+    }
+
+    try {
+        await tokenManager.setTokens(
+            accessToken,
+            refreshToken,
+            expiresAt || new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), // 6 horas default
+            userId
+        );
+
+        res.json({
+            success: true,
+            message: 'Tokens actualizados',
+            tokens: tokenManager.getTokens()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// POST /api/tokens/refresh - Forzar renovación de token
+app.post('/api/tokens/refresh', async (req, res) => {
+    try {
+        const newTokens = await tokenManager.refreshToken();
+        res.json({
+            success: true,
+            message: 'Token renovado exitosamente',
+            expiresIn: newTokens.expiresIn,
+            tokens: tokenManager.getTokens()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            hint: 'Si el refresh_token expiró, debes re-autorizar en /auth/mercadolibre'
+        });
     }
 });
 
