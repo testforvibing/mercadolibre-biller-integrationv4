@@ -324,15 +324,24 @@ async function procesarOrdenMercadoLibre(orderId) {
         });
 
     } catch (error) {
-        logger.error('Error procesando orden', { orderId, error: error.message });
+        logger.error('Error procesando orden', {
+            orderId,
+            error: error.message,
+            response: error.response,
+            code: error.code
+        });
 
-        // Registrar error en ErrorStore
+        // Registrar error en ErrorStore con más detalle
         errorStore.addError(
             ERROR_TYPES.BILLER,
             SEVERITY_LEVELS.HIGH,
             'procesarOrdenMercadoLibre',
             error.message,
-            { orderId }
+            {
+                orderId,
+                billerResponse: error.response,
+                errorCode: error.code
+            }
         );
 
         throw error;
