@@ -180,10 +180,26 @@ app.post('/webhooks/mercadolibre', async (req, res) => {
     // 3. Procesar inmediatamente (también se re-procesa por worker si falla)
     const resourceId = resource?.split('/').pop();
 
+    // Para orders_v2, obtener el estado actual para deduplicación inteligente
+    // Esto permite procesar el mismo orderId si cambió de estado (paid -> cancelled)
+    let dedupeKey = `ml-${topic}`;
+    if (topic === 'orders_v2') {
+        try {
+            const order = await obtenerOrdenML(resourceId);
+            if (order?.status) {
+                dedupeKey = `ml-${topic}-${order.status}`;
+                logger.debug('Deduplicación por estado', { orderId: resourceId, status: order.status });
+            }
+        } catch (e) {
+            // Si falla obtener orden, usar deduplicación normal
+            logger.debug('No se pudo obtener estado para deduplicación', { orderId: resourceId });
+        }
+    }
+
     // Deduplicación
-    if (!webhookDedupe.tryAcquire(`ml-${topic}`, resourceId)) {
+    if (!webhookDedupe.tryAcquire(dedupeKey, resourceId)) {
         webhookQueue.complete(queueId);
-        logger.debug('Webhook duplicado', { topic, resourceId });
+        logger.debug('Webhook duplicado', { topic, resourceId, dedupeKey });
         return;
     }
 
@@ -203,7 +219,7 @@ app.post('/webhooks/mercadolibre', async (req, res) => {
         }
 
         webhookQueue.complete(queueId);
-        webhookDedupe.complete(`ml-${topic}`, resourceId);
+        webhookDedupe.complete(dedupeKey, resourceId);
         metrics.webhooksProcesados++;
         prometheusMetrics.inc('webhooks_processed_total');
         endTimer();
@@ -213,7 +229,7 @@ app.post('/webhooks/mercadolibre', async (req, res) => {
         webhookQueue.fail(queueId, error.message);
         metrics.errores++;
         prometheusMetrics.inc('webhooks_failed_total');
-        webhookDedupe.release(`ml-${topic}`, resourceId);
+        webhookDedupe.release(dedupeKey, resourceId);
         endTimer();
 
         // Registrar error en ErrorStore
