@@ -195,6 +195,9 @@ app.post('/webhooks/mercadolibre', async (req, res) => {
             case 'claims':
                 await procesarClaimMercadoLibre(resourceId);
                 break;
+            case 'payments':
+                await procesarPaymentMercadoLibre(resourceId);
+                break;
             default:
                 logger.debug('Webhook ignorado', { topic });
         }
@@ -374,6 +377,105 @@ async function procesarClaimMercadoLibre(claimId) {
 
         throw error;
     }
+}
+
+// ============================================================
+// PROCESAMIENTO DE PAYMENTS (REFUNDS/CANCELACIONES)
+// ============================================================
+
+async function procesarPaymentMercadoLibre(paymentId) {
+    logger.info(`💳 Procesando payment ML ${paymentId}`);
+
+    try {
+        // 1. Obtener detalles del payment
+        const payment = await obtenerPaymentML(paymentId);
+
+        if (!payment) {
+            logger.warn('Payment no encontrado', { paymentId });
+            return;
+        }
+
+        // 2. Solo procesar si el payment fue reembolsado
+        if (payment.status !== 'refunded') {
+            logger.debug('Payment no es refund', { paymentId, status: payment.status });
+            return;
+        }
+
+        logger.info('💰 Payment refunded detectado', {
+            paymentId,
+            orderId: payment.order_id,
+            amount: payment.transaction_amount
+        });
+
+        // 3. Obtener la orden asociada
+        const orderId = payment.order_id;
+        if (!orderId) {
+            logger.warn('Payment sin order_id', { paymentId });
+            return;
+        }
+
+        // 4. Verificar si existe factura para esta orden
+        const comprobante = comprobanteStore.findByOrderId(orderId);
+        if (!comprobante) {
+            logger.info('Payment refunded pero orden sin factura', { paymentId, orderId });
+            return;
+        }
+
+        // 5. Verificar si ya existe NC
+        const ncExistente = comprobanteStore.findNCByOrderId(orderId);
+        if (ncExistente) {
+            logger.info('NC ya existe para esta orden', { orderId, ncId: ncExistente.id });
+            return;
+        }
+
+        // 6. Obtener orden para procesar cancelación
+        const order = await obtenerOrdenML(orderId);
+        if (!order) {
+            logger.warn('No se pudo obtener orden para NC', { orderId });
+            return;
+        }
+
+        // 7. Procesar como cancelación (emitir NC)
+        const resultado = await procesarCancelacion({ ...order, status: 'cancelled' });
+
+        if (resultado.action === 'nc_emitted') {
+            metrics.ncEmitidas++;
+            logger.info(`✅ NC emitida por payment refund`, {
+                paymentId,
+                orderId,
+                ncId: resultado.nc.id
+            });
+        }
+
+    } catch (error) {
+        logger.error('Error procesando payment', { paymentId, error: error.message });
+
+        errorStore.addError(
+            ERROR_TYPES.WEBHOOK,
+            SEVERITY_LEVELS.HIGH,
+            'procesarPaymentMercadoLibre',
+            error.message,
+            { paymentId }
+        );
+
+        throw error;
+    }
+}
+
+async function obtenerPaymentML(paymentId) {
+    const accessToken = await tokenManager.ensureValidToken();
+    const response = await fetch(
+        `https://api.mercadolibre.com/payments/${paymentId}`,
+        {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json'
+            }
+        }
+    );
+
+    if (!response.ok) return null;
+    return response.json();
 }
 
 // ============================================================
