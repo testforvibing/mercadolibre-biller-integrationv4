@@ -600,6 +600,42 @@ app.get('/api/debug/orden/:orderId', async (req, res) => {
     }
 });
 
+// Debug: Listar órdenes recientes del vendedor
+app.get('/api/debug/ordenes', async (req, res) => {
+    const accessToken = await tokenManager.ensureValidToken();
+    const userId = tokenManager.getTokens().userId;
+
+    try {
+        const response = await fetch(
+            `https://api.mercadolibre.com/orders/search?seller=${userId}&sort=date_desc&limit=10`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        res.json({
+            status: response.status,
+            ok: response.ok,
+            userId,
+            total: data.paging?.total || 0,
+            orders: (data.results || []).map(o => ({
+                id: o.id,
+                status: o.status,
+                total: o.total_amount,
+                date: o.date_created,
+                buyer: o.buyer?.nickname
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ============================================================
 // OAUTH MERCADOLIBRE
 // ============================================================
