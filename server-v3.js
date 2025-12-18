@@ -567,6 +567,40 @@ function prepararDatosBiller(order, decision) {
 }
 
 // ============================================================
+// DEBUG: Probar API de ML directamente
+// ============================================================
+
+app.get('/api/debug/orden/:orderId', async (req, res) => {
+    const { orderId } = req.params;
+    const accessToken = await tokenManager.ensureValidToken();
+
+    logger.info('🔍 Debug: Consultando orden', { orderId, tokenPreview: accessToken?.slice(-10) });
+
+    try {
+        const response = await fetch(
+            `https://api.mercadolibre.com/orders/${orderId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        res.json({
+            status: response.status,
+            ok: response.ok,
+            tokenUserId: tokenManager.getTokens().userId,
+            data
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================================
 // OAUTH MERCADOLIBRE
 // ============================================================
 
