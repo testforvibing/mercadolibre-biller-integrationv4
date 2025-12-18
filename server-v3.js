@@ -558,8 +558,64 @@ app.post('/api/reprocesar-orden/:orderId', async (req, res) => {
     logger.info(`🔄 Reprocesando orden manualmente: ${orderId}`);
 
     try {
+        // Obtener orden para dar info detallada
+        const order = await obtenerOrdenML(orderId);
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Orden no encontrada en MercadoLibre',
+                hint: 'Verifica que el token esté autorizado con el vendedor correcto'
+            });
+        }
+
+        // Verificar si ya existe
+        const existente = comprobanteStore.findByOrderId(orderId);
+        if (existente) {
+            return res.json({
+                success: true,
+                message: 'Orden ya facturada previamente',
+                comprobante: {
+                    serie: existente.serie,
+                    numero: existente.numero,
+                    tipo: existente.tipo_comprobante
+                }
+            });
+        }
+
+        // Info del estado
+        const orderInfo = {
+            status: order.status,
+            total: order.total_amount,
+            buyer: order.buyer?.nickname,
+            date: order.date_created
+        };
+
+        // Solo procesar si está pagada
+        if (order.status !== 'paid' && order.status !== 'cancelled') {
+            return res.json({
+                success: false,
+                message: `Orden en estado '${order.status}', no se puede facturar`,
+                order: orderInfo,
+                hint: order.status === 'cancelled' ? 'Usa /api/emitir-nc/:orderId para emitir NC' : 'Solo se facturan órdenes pagadas'
+            });
+        }
+
         await procesarOrdenMercadoLibre(orderId);
-        res.json({ success: true, message: `Orden ${orderId} reprocesada` });
+
+        // Verificar si se creó el comprobante
+        const nuevoComprobante = comprobanteStore.findByOrderId(orderId);
+
+        res.json({
+            success: true,
+            message: `Orden ${orderId} procesada`,
+            order: orderInfo,
+            comprobante: nuevoComprobante ? {
+                serie: nuevoComprobante.serie,
+                numero: nuevoComprobante.numero,
+                tipo: nuevoComprobante.tipo_comprobante
+            } : null
+        });
     } catch (error) {
         logger.error('Error reprocesando orden', { orderId, error: error.message });
         res.status(500).json({ success: false, error: error.message });
