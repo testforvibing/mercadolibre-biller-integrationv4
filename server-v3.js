@@ -387,15 +387,23 @@ async function procesarPaymentMercadoLibre(paymentId) {
     logger.info(`💳 Procesando payment ML ${paymentId}`);
 
     try {
-        // 1. Obtener detalles del payment
-        const payment = await obtenerPaymentML(paymentId);
+        // Estrategia: Buscar la orden que contiene este payment
+        // El endpoint /payments/{id} no siempre es accesible
+        const order = await buscarOrdenPorPayment(paymentId);
 
-        if (!payment) {
-            logger.warn('Payment no encontrado', { paymentId });
+        if (!order) {
+            logger.debug('No se encontró orden para payment', { paymentId });
             return;
         }
 
-        // 2. Solo procesar si el payment fue reembolsado
+        // Verificar si el payment está refunded
+        const payment = order.payments?.find(p => p.id.toString() === paymentId.toString());
+
+        if (!payment) {
+            logger.debug('Payment no encontrado en orden', { paymentId, orderId: order.id });
+            return;
+        }
+
         if (payment.status !== 'refunded') {
             logger.debug('Payment no es refund', { paymentId, status: payment.status });
             return;
@@ -403,39 +411,27 @@ async function procesarPaymentMercadoLibre(paymentId) {
 
         logger.info('💰 Payment refunded detectado', {
             paymentId,
-            orderId: payment.order_id,
+            orderId: order.id,
             amount: payment.transaction_amount
         });
 
-        // 3. Obtener la orden asociada
-        const orderId = payment.order_id;
-        if (!orderId) {
-            logger.warn('Payment sin order_id', { paymentId });
-            return;
-        }
+        const orderId = order.id;
 
-        // 4. Verificar si existe factura para esta orden
+        // Verificar si existe factura para esta orden
         const comprobante = comprobanteStore.findByOrderId(orderId);
         if (!comprobante) {
             logger.info('Payment refunded pero orden sin factura', { paymentId, orderId });
             return;
         }
 
-        // 5. Verificar si ya existe NC
+        // Verificar si ya existe NC
         const ncExistente = comprobanteStore.findNCByOrderId(orderId);
         if (ncExistente) {
             logger.info('NC ya existe para esta orden', { orderId, ncId: ncExistente.id });
             return;
         }
 
-        // 6. Obtener orden para procesar cancelación
-        const order = await obtenerOrdenML(orderId);
-        if (!order) {
-            logger.warn('No se pudo obtener orden para NC', { orderId });
-            return;
-        }
-
-        // 7. Procesar como cancelación (emitir NC)
+        // Procesar como cancelación (emitir NC)
         const resultado = await procesarCancelacion({ ...order, status: 'cancelled' });
 
         if (resultado.action === 'nc_emitted') {
@@ -462,10 +458,13 @@ async function procesarPaymentMercadoLibre(paymentId) {
     }
 }
 
-async function obtenerPaymentML(paymentId) {
+async function buscarOrdenPorPayment(paymentId) {
+    // Buscar en órdenes recientes del vendedor
     const accessToken = await tokenManager.ensureValidToken();
+    const userId = config.mercadolibre.userId || process.env.ML_USER_ID;
+
     const response = await fetch(
-        `https://api.mercadolibre.com/payments/${paymentId}`,
+        `https://api.mercadolibre.com/orders/search?seller=${userId}&sort=date_desc&limit=50`,
         {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -474,8 +473,23 @@ async function obtenerPaymentML(paymentId) {
         }
     );
 
-    if (!response.ok) return null;
-    return response.json();
+    if (!response.ok) {
+        logger.warn('Error buscando órdenes', { status: response.status });
+        return null;
+    }
+
+    const data = await response.json();
+
+    // Buscar la orden que contiene este payment
+    for (const order of data.results || []) {
+        const hasPayment = order.payments?.some(p => p.id.toString() === paymentId.toString());
+        if (hasPayment) {
+            // Obtener orden completa
+            return await obtenerOrdenML(order.id);
+        }
+    }
+
+    return null;
 }
 
 // ============================================================
