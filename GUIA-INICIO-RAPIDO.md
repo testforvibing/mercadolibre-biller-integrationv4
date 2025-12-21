@@ -1,9 +1,9 @@
-# Guía de Inicio Rápido - Integración MercadoLibre ↔ Biller
+# Guía de Inicio Rápido - Integración Wix ↔ Biller
 
 ## Requisitos Previos
 
 - Node.js v18 o superior
-- Cuenta de vendedor en MercadoLibre Uruguay
+- Cuenta en Wix con ecommerce activo
 - Cuenta en Biller (test o producción)
 - Servidor desplegado en Render (o similar)
 
@@ -33,14 +33,16 @@ BILLER_EMPRESA_ID=123
 BILLER_EMPRESA_RUT=219999990019
 BILLER_EMPRESA_SUCURSAL=1
 
-# MERCADOLIBRE
-ML_APP_ID=tu_app_id
-ML_APP_SECRET=tu_app_secret
-ML_USER_ID=tu_user_id
-ML_COUNTRY=UY
+# WIX
+WIX_CLIENT_ID=tu_client_id
+WIX_CLIENT_SECRET=tu_client_secret
+WIX_ACCESS_TOKEN=tu_access_token
+WIX_REFRESH_TOKEN=tu_refresh_token
+WIX_API_BASE_URL=https://www.wixapis.com
+WIX_WEBHOOK_SECRET=tu_webhook_secret
 
 # OPCIONES
-ML_INVOICE_UPLOAD_ENABLED=true
+WIX_INVOICE_DELIVERY_ENABLED=true
 LOG_LEVEL=info
 ```
 
@@ -55,7 +57,7 @@ LOG_LEVEL=info
 3. Crea un nuevo "Web Service"
 4. Configura:
    - **Build Command**: `npm install`
-   - **Start Command**: `node server-v3.js`
+   - **Start Command**: `node server.js`
    - **Health Check Path**: `/health`
 
 ### Paso 2: Configurar variables de entorno
@@ -80,52 +82,29 @@ Deberías ver:
 ```json
 {
   "status": "ok",
-  "service": "MercadoLibre-Biller Integration v3",
+  "service": "Wix-Biller Integration v3",
   "biller": { "connected": true }
 }
 ```
 
 ---
 
-## 3. Autorización OAuth con MercadoLibre
+## 3. Autenticación con Wix
 
-### Primera vez (obtener tokens)
+Define el método de autenticación según tu app:
 
-1. Abre en tu navegador:
-   ```
-   https://tu-app.onrender.com/auth/mercadolibre
-   ```
+- **OAuth**: Usa Client ID/Secret y guarda access/refresh tokens.
+- **API Key**: Guarda la API Key en variables de entorno y usa headers.
 
-2. Inicia sesión con tu cuenta de MercadoLibre
-
-3. Acepta los permisos
-
-4. Serás redirigido de vuelta y verás "Autorización exitosa"
-
-Los tokens se guardan automáticamente en `./data/ml-tokens.json`.
+Guarda las credenciales en tu `.env`.
 
 ---
 
-## 4. Configurar Webhooks en MercadoLibre
+## 4. Configurar Webhooks en Wix
 
-### Opción A: Usando la API de ML (recomendado)
-
-```bash
-curl -X POST "https://api.mercadolibre.com/applications/TU_APP_ID/notifications" \
-  -H "Authorization: Bearer TU_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://tu-app.onrender.com/webhooks/mercadolibre",
-    "topics": ["orders_v2", "claims"]
-  }'
-```
-
-### Opción B: Desde el panel de desarrolladores
-
-1. Ve a https://developers.mercadolibre.com.uy
-2. Entra a tu aplicación
-3. Configura la URL de webhooks: `https://tu-app.onrender.com/webhooks/mercadolibre`
-4. Selecciona los topics: `orders_v2`, `claims`
+1. En Wix Developers, crea y configura tu app.
+2. Agrega la URL del webhook: `https://tu-app.onrender.com/webhooks/wix`
+3. Suscribe eventos de orden (creada/pagada/cancelada/reembolsada).
 
 ---
 
@@ -134,7 +113,7 @@ curl -X POST "https://api.mercadolibre.com/applications/TU_APP_ID/notifications"
 ### Facturación (cuando alguien compra)
 
 ```
-Compra en ML → Webhook orders_v2 → Emitir factura en Biller → Obtener PDF → Subir a ML
+Compra en Wix → Webhook order.created/paid → Emitir factura en Biller → Obtener PDF → Guardar link/nota en Wix
 ```
 
 El comprador verá la factura en su historial de compras (como en tu captura).
@@ -142,7 +121,7 @@ El comprador verá la factura en su historial de compras (como en tu captura).
 ### Notas de Crédito (cuando hay devolución)
 
 ```
-Devolución/Cancelación → Webhook claims → Buscar factura original → Emitir NC en Biller
+Cancelación/Reembolso → Webhook order.canceled/refunded → Buscar factura original → Emitir NC en Biller
 ```
 
 ---
@@ -158,7 +137,7 @@ Devolución/Cancelación → Webhook claims → Buscar factura original → Emit
 | `GET /api/comprobantes` | Lista de comprobantes |
 | `GET /api/notas-credito` | Lista de notas de crédito |
 | `GET /api/dashboard` | Datos del dashboard (JSON) |
-| `POST /api/reconciliation/run` | Ejecutar reconciliación |
+| `POST /api/reconciliation/run` | Ejecutar reconciliación Wix ↔ Biller |
 | `POST /api/reprocesar-orden/:orderId` | Reprocesar orden (útil si no llegó webhook) |
 | `POST /api/emitir-nc/:orderId` | Forzar emisión de NC para una orden |
 
@@ -213,28 +192,28 @@ Puedes desactivar esto en la configuración si prefieres despliegues manuales.
 
 ## 9. Troubleshooting
 
-### El PDF no se sube a MercadoLibre
+### El PDF no se guarda en Wix
 
-1. Verifica que `ML_INVOICE_UPLOAD_ENABLED=true` en las variables de entorno
+1. Verifica que `WIX_INVOICE_DELIVERY_ENABLED=true` en las variables de entorno
 2. Revisa los logs en Render para ver errores del worker
-3. Verifica que el token de ML sea válido
+3. Verifica que el token de Wix sea válido
 
 ### Los webhooks no llegan
 
 1. Verifica que `SERVER_PUBLIC_URL` sea correcto en las variables de entorno
-2. Verifica que la URL de webhooks en ML apunte a tu servidor de Render
+2. Verifica que la URL de webhooks en Wix apunte a tu servidor de Render
 3. Prueba el endpoint manualmente:
    ```bash
-   curl -X POST https://tu-app.onrender.com/webhooks/mercadolibre \
+   curl -X POST https://tu-app.onrender.com/webhooks/wix \
      -H "Content-Type: application/json" \
-     -d '{"topic":"test","resource":"/test/123"}'
+     -d '{"eventType":"test","resourceId":"123"}'
    ```
 
 ### Error de token expirado
 
-El sistema renueva tokens automáticamente. Si falla:
-1. Elimina `./data/ml-tokens.json`
-2. Vuelve a autorizar en `/auth/mercadolibre`
+Si usas OAuth en Wix:
+1. Verifica refresh token y permisos
+2. Vuelve a autorizar la app si es necesario
 
 ### La factura no se emite
 
@@ -249,7 +228,7 @@ El sistema renueva tokens automáticamente. Si falla:
 ```
 ./data/
 ├── comprobantes.json    # Comprobantes emitidos
-├── ml-tokens.json       # Tokens de MercadoLibre
+├── tokens.json          # Tokens de Wix (si aplica)
 ├── webhook-queue.json   # Cola de webhooks
 └── errors.json          # Registro de errores
 ```
@@ -261,11 +240,14 @@ El sistema renueva tokens automáticamente. Si falla:
 ```bash
 # Desarrollo local
 npm install                    # Instalar dependencias
-node server-v3.js              # Iniciar servidor
+npm start                      # Iniciar servidor (node server.js)
 
 # Verificar salud del servidor
 curl https://tu-app.onrender.com/health
 
 # Ver dashboard
 # Abre: https://tu-app.onrender.com/dashboard
+
+# Ejecutar tests
+npm test
 ```

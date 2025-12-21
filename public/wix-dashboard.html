@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Biller - Dashboard de Facturación</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Madefor', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background: #f0f4f7;
+      color: #162d3d;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 500;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #3899ec;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2b81cb;
+    }
+
+    .btn-secondary {
+      background: white;
+      color: #3899ec;
+      border: 1px solid #3899ec;
+    }
+
+    .btn-secondary:hover {
+      background: #eaf7ff;
+    }
+
+    /* Stats Cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .stat-card-label {
+      font-size: 12px;
+      color: #7a92a5;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .stat-card-value {
+      font-size: 32px;
+      font-weight: 600;
+      color: #162d3d;
+    }
+
+    .stat-card-value.success { color: #25a55f; }
+    .stat-card-value.warning { color: #fb7d33; }
+    .stat-card-value.error { color: #ee5951; }
+
+    /* Status Badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-badge.connected {
+      background: #e5f8ed;
+      color: #25a55f;
+    }
+
+    .status-badge.disconnected {
+      background: #fee7e6;
+      color: #ee5951;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #dfe5eb;
+      margin-bottom: 24px;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      font-size: 14px;
+      color: #7a92a5;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      color: #3899ec;
+    }
+
+    .tab.active {
+      color: #3899ec;
+      border-bottom-color: #3899ec;
+    }
+
+    /* Table */
+    .table-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    .table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #dfe5eb;
+    }
+
+    .table-title {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .search-input {
+      padding: 8px 12px;
+      border: 1px solid #dfe5eb;
+      border-radius: 6px;
+      font-size: 14px;
+      width: 250px;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: #3899ec;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px 20px;
+      text-align: left;
+      border-bottom: 1px solid #f0f4f7;
+    }
+
+    th {
+      font-size: 12px;
+      font-weight: 500;
+      color: #7a92a5;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: #fafbfc;
+    }
+
+    td {
+      font-size: 14px;
+    }
+
+    tr:hover {
+      background: #fafbfc;
+    }
+
+    .invoice-number {
+      font-weight: 500;
+      color: #3899ec;
+    }
+
+    .invoice-type {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .invoice-type.e-ticket {
+      background: #e5f8ed;
+      color: #25a55f;
+    }
+
+    .invoice-type.e-factura {
+      background: #eaf7ff;
+      color: #3899ec;
+    }
+
+    .invoice-type.nc {
+      background: #fff4e5;
+      color: #fb7d33;
+    }
+
+    .action-btn {
+      padding: 6px 12px;
+      border: none;
+      background: none;
+      color: #3899ec;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .action-btn:hover {
+      text-decoration: underline;
+    }
+
+    /* Settings Panel */
+    .settings-section {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .settings-section h3 {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f0f4f7;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+    }
+
+    .setting-label {
+      font-size: 14px;
+    }
+
+    .setting-value {
+      font-size: 14px;
+      color: #7a92a5;
+    }
+
+    .setting-value.masked {
+      font-family: monospace;
+      letter-spacing: 2px;
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: #7a92a5;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #dfe5eb;
+      border-top-color: #3899ec;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #7a92a5;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    /* Hidden */
+    .hidden {
+      display: none !important;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container {
+        padding: 16px;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+
+      .table-header {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .search-input {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div>
+        <h1>Facturación Electrónica</h1>
+        <span id="biller-status" class="status-badge disconnected">
+          <span class="status-dot"></span>
+          Verificando...
+        </span>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="refreshTokens()">Renovar Tokens</button>
+        <button class="btn btn-primary" onclick="exportCSV()">Exportar CSV</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-label">Total Comprobantes</div>
+        <div class="stat-card-value" id="stat-total">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Hoy</div>
+        <div class="stat-card-value success" id="stat-today">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">e-Tickets</div>
+        <div class="stat-card-value" id="stat-etickets">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">e-Facturas</div>
+        <div class="stat-card-value" id="stat-efacturas">-</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="invoices" onclick="switchTab('invoices')">Comprobantes</div>
+      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Configuración</div>
+    </div>
+
+    <!-- Invoices Tab -->
+    <div id="tab-invoices" class="tab-content">
+      <div class="table-container">
+        <div class="table-header">
+          <span class="table-title">Comprobantes Recientes</span>
+          <input type="text" class="search-input" placeholder="Buscar por orden o cliente..." id="search-input" oninput="filterInvoices()">
+        </div>
+        <div id="invoices-loading" class="loading">
+          <div class="spinner"></div>
+          <p>Cargando comprobantes...</p>
+        </div>
+        <table id="invoices-table" class="hidden">
+          <thead>
+            <tr>
+              <th>Número</th>
+              <th>Tipo</th>
+              <th>Fecha</th>
+              <th>Cliente</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="invoices-body">
+          </tbody>
+        </table>
+        <div id="invoices-empty" class="empty-state hidden">
+          <div class="empty-state-icon">📄</div>
+          <p>No hay comprobantes aún</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="tab-settings" class="tab-content hidden">
+      <div class="settings-section">
+        <h3>Conexión Biller</h3>
+        <div class="setting-row">
+          <span class="setting-label">Empresa</span>
+          <span class="setting-value" id="setting-empresa">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">RUT</span>
+          <span class="setting-value" id="setting-rut">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Ambiente</span>
+          <span class="setting-value" id="setting-ambiente">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Token Biller</span>
+          <span class="setting-value masked" id="setting-token">-</span>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Reglas DGI</h3>
+        <div class="setting-row">
+          <span class="setting-label">Valor UI</span>
+          <span class="setting-value" id="setting-valor-ui">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Límite 5000 UI</span>
+          <span class="setting-value" id="setting-limite">-</span>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Integración Wix</h3>
+        <div class="setting-row">
+          <span class="setting-label">Estado Token</span>
+          <span class="setting-value" id="setting-wix-token">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Webhook URL</span>
+          <span class="setting-value" id="setting-webhook">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuración - obtener del query string o usar default
+    const urlParams = new URLSearchParams(window.location.search);
+    const BACKEND_URL = urlParams.get('backend') || window.location.origin;
+    const INSTANCE = urlParams.get('instance') || '';
+
+    // Estado
+    let allInvoices = [];
+
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', () => {
+      loadDashboard();
+      loadSettings();
+    });
+
+    // Cargar dashboard
+    async function loadDashboard() {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/wix-app/dashboard`, {
+          headers: getAuthHeaders()
+        });
+
+        if (!response.ok) throw new Error('Error cargando dashboard');
+
+        const data = await response.json();
+
+        // Stats
+        document.getElementById('stat-total').textContent = data.summary.total || 0;
+        document.getElementById('stat-today').textContent = data.summary.today || 0;
+        document.getElementById('stat-etickets').textContent = data.summary.eTickets || 0;
+        document.getElementById('stat-efacturas').textContent = data.summary.eFacturas || 0;
+
+        // Biller Status
+        const statusEl = document.getElementById('biller-status');
+        if (data.billerStatus.connected) {
+          statusEl.className = 'status-badge connected';
+          statusEl.innerHTML = '<span class="status-dot"></span>Conectado - ' + (data.billerStatus.ambiente || 'test');
+        } else {
+          statusEl.className = 'status-badge disconnected';
+          statusEl.innerHTML = '<span class="status-dot"></span>Desconectado';
+        }
+
+        // Invoices
+        allInvoices = data.recentInvoices || [];
+        renderInvoices(allInvoices);
+
+      } catch (error) {
+        console.error('Error:', error);
+        document.getElementById('biller-status').className = 'status-badge disconnected';
+        document.getElementById('biller-status').innerHTML = '<span class="status-dot"></span>Error de conexión';
+      }
+    }
+
+    // Cargar settings
+    async function loadSettings() {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/wix-app/settings`, {
+          headers: getAuthHeaders()
+        });
+
+        if (!response.ok) throw new Error('Error cargando settings');
+
+        const data = await response.json();
+
+        // Biller
+        document.getElementById('setting-empresa').textContent = data.biller.empresaNombre || '-';
+        document.getElementById('setting-rut').textContent = data.biller.empresaRut || '-';
+        document.getElementById('setting-ambiente').textContent = data.biller.ambiente || '-';
+        document.getElementById('setting-token').textContent = data.biller.hasToken ? '••••••••••' : 'No configurado';
+
+        // DGI
+        document.getElementById('setting-valor-ui').textContent = '$' + (data.dgi.valorUI || 0) + ' UYU';
+        document.getElementById('setting-limite').textContent = '$' + (data.dgi.limiteMontoUYU || 0).toLocaleString() + ' UYU';
+
+        // Wix
+        document.getElementById('setting-wix-token').textContent = data.wix.hasAccessToken
+          ? (data.wix.isExpired ? 'Expirado' : 'Válido')
+          : 'No configurado';
+        document.getElementById('setting-webhook').textContent = data.wix.webhookUrl || '-';
+
+      } catch (error) {
+        console.error('Error cargando settings:', error);
+      }
+    }
+
+    // Renderizar invoices
+    function renderInvoices(invoices) {
+      const loading = document.getElementById('invoices-loading');
+      const table = document.getElementById('invoices-table');
+      const empty = document.getElementById('invoices-empty');
+      const tbody = document.getElementById('invoices-body');
+
+      loading.classList.add('hidden');
+
+      if (invoices.length === 0) {
+        table.classList.add('hidden');
+        empty.classList.remove('hidden');
+        return;
+      }
+
+      empty.classList.add('hidden');
+      table.classList.remove('hidden');
+
+      tbody.innerHTML = invoices.map(inv => `
+        <tr>
+          <td><span class="invoice-number">${inv.numeroCompleto || inv.serie + '-' + inv.numero}</span></td>
+          <td><span class="invoice-type ${getTypeClass(inv.type, inv.isCreditNote)}">${inv.typeLabel || getTypeLabel(inv.type)}</span></td>
+          <td>${formatDate(inv.createdAt)}</td>
+          <td>${inv.customer || 'Consumidor Final'}</td>
+          <td>$${(inv.total || 0).toLocaleString()}</td>
+          <td>
+            <button class="action-btn" onclick="downloadPDF('${inv.orderId}')">PDF</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Filtrar invoices
+    function filterInvoices() {
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const filtered = allInvoices.filter(inv =>
+        (inv.orderId || '').toLowerCase().includes(search) ||
+        (inv.customer || '').toLowerCase().includes(search) ||
+        (inv.numeroCompleto || '').toLowerCase().includes(search)
+      );
+      renderInvoices(filtered);
+    }
+
+    // Cambiar tab
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+
+      document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+    }
+
+    // Descargar PDF
+    function downloadPDF(orderId) {
+      window.open(`${BACKEND_URL}/api/wix-app/invoice/${orderId}/pdf`, '_blank');
+    }
+
+    // Exportar CSV
+    function exportCSV() {
+      window.open(`${BACKEND_URL}/api/wix-app/export/csv`, '_blank');
+    }
+
+    // Renovar tokens
+    async function refreshTokens() {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/wix-app/refresh-tokens`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          alert('Tokens renovados exitosamente');
+          loadSettings();
+        } else {
+          alert('Error: ' + (data.error || 'No se pudieron renovar los tokens'));
+        }
+      } catch (error) {
+        alert('Error de conexión');
+      }
+    }
+
+    // Headers de autenticación
+    function getAuthHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      if (INSTANCE) {
+        headers['Authorization'] = 'Bearer ' + INSTANCE;
+      }
+      return headers;
+    }
+
+    // Helpers
+    function getTypeClass(type, isNC) {
+      if (isNC || type === 102 || type === 112) return 'nc';
+      if (type === 111) return 'e-factura';
+      return 'e-ticket';
+    }
+
+    function getTypeLabel(type) {
+      const labels = {
+        101: 'e-Ticket',
+        102: 'NC e-Ticket',
+        111: 'e-Factura',
+        112: 'NC e-Factura'
+      };
+      return labels[type] || 'CFE ' + type;
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '-';
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('es-UY', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+  </script>
+</body>
+</html>

@@ -74,7 +74,7 @@ class BillerClient {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'User-Agent': 'MercadoLibreBillerIntegration/2.0'
+        'User-Agent': 'WixBillerIntegration/2.0'
       }
     };
 
@@ -450,13 +450,16 @@ class BillerClient {
 
   /**
    * Buscar comprobante por número interno
+   * FIX: Usar requestWithRetry para evitar falsos negativos por timeout
    * @param {string} numeroInterno
    */
   async buscarPorNumeroInterno(numeroInterno) {
     try {
-      const response = await this.request(
+      const response = await this.requestWithRetry(
         'GET',
-        `/comprobantes?numero_interno=${encodeURIComponent(numeroInterno)}`
+        `/comprobantes?numero_interno=${encodeURIComponent(numeroInterno)}`,
+        null,
+        'buscar-comprobante'
       );
 
       // La API puede devolver array o objeto con data
@@ -468,7 +471,12 @@ class BillerClient {
 
       return null;
     } catch (error) {
-      logger.debug('Error buscando comprobante', { numeroInterno, error: error.message });
+      // Distinguir entre "no encontrado" y "error de red"
+      if (error.status === 404) {
+        return null; // Realmente no existe
+      }
+      logger.warn('Error buscando comprobante (posible duplicado)', { numeroInterno, error: error.message });
+      // Retornar null pero loguear warning - podría causar duplicados
       return null;
     }
   }

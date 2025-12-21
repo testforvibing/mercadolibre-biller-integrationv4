@@ -1,0 +1,84 @@
+# ============================================================
+# RENDER.YAML - Configuracion para deploy en Render
+# ============================================================
+#
+# INSTRUCCIONES:
+# 1. Sube tu codigo a un repositorio de GitHub
+# 2. Ve a https://dashboard.render.com
+# 3. Conecta tu repositorio
+# 4. Render detectara este archivo automaticamente
+# 5. Configura las variables de entorno en Render Dashboard
+#
+# ============================================================
+
+services:
+  - type: web
+    name: wix-biller-integration
+    runtime: node
+    region: oregon  # Cambia si prefieres otra region
+    plan: free  # Opciones: free, starter, standard, pro
+    buildCommand: npm install
+    startCommand: npm start
+
+    # Health check
+    healthCheckPath: /health
+
+    # Variables de entorno (configura los valores en Render Dashboard)
+    envVars:
+      # Servidor
+      - key: SERVER_PORT
+        value: 3000
+      - key: SERVER_PUBLIC_URL
+        sync: false  # Render lo configura automaticamente
+
+      # Biller (REQUERIDO - configura en Dashboard)
+      - key: BILLER_ENVIRONMENT
+        value: test
+      - key: BILLER_TOKEN
+        sync: false
+      - key: BILLER_EMPRESA_ID
+        sync: false
+      - key: BILLER_EMPRESA_RUT
+        sync: false
+      - key: BILLER_EMPRESA_SUCURSAL
+        value: "1"
+      - key: BILLER_EMPRESA_NOMBRE
+        sync: false
+
+      # Wix OAuth (REQUERIDO - configura en Dashboard)
+      - key: WIX_CLIENT_ID
+        sync: false
+      - key: WIX_CLIENT_SECRET
+        sync: false
+      - key: WIX_API_BASE_URL
+        value: https://www.wixapis.com
+      - key: WIX_WEBHOOK_SECRET
+        sync: false
+
+      # Wix Tokens (se completan despues de OAuth)
+      - key: WIX_ACCESS_TOKEN
+        sync: false
+      - key: WIX_REFRESH_TOKEN
+        sync: false
+      - key: WIX_TOKEN_EXPIRES_AT
+        sync: false
+      - key: WIX_SITE_ID
+        sync: false
+
+      # Render API para auto-actualizacion de tokens (OPCIONAL pero recomendado)
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_SERVICE_ID
+        sync: false
+
+      # DGI Uruguay
+      - key: DGI_VALOR_UI
+        value: "6.50"
+
+      # Opciones
+      - key: VALIDAR_RUT_CON_DGI
+        value: "true"
+      - key: ENVIAR_COMPROBANTE_CLIENTE
+        value: "true"
+      - key: LOG_LEVEL
+        value: info

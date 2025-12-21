@@ -72,10 +72,12 @@ class ComprobanteStore {
       fs.writeFileSync(tempPath, JSON.stringify(obj, null, 2));
       fs.renameSync(tempPath, this.filePath);
 
+      // FIX: Marcar dirty=false SOLO después de confirmar escritura exitosa
       this.dirty = false;
       logger.debug('Comprobantes guardados', { total: this.data.size });
     } catch (error) {
-      logger.error('Error guardando comprobantes', { error: error.message });
+      // FIX: NO marcar dirty=false si falla - se reintentará en próximo auto-save
+      logger.error('Error guardando comprobantes, se reintentará', { error: error.message });
     }
   }
 
@@ -107,11 +109,11 @@ class ComprobanteStore {
 
   /**
    * Guardar comprobante emitido
-   * @param {string} orderId - ID del pedido
+   * @param {string} orderId - ID del pedido Wix
    * @param {Object} comprobante - Datos del comprobante
    */
   set(orderId, comprobante) {
-    const key = `ml-${orderId}`;
+    const key = `wix-${orderId}`;
 
     const entry = {
       ...comprobante,
@@ -128,12 +130,12 @@ class ComprobanteStore {
   }
 
   /**
-   * Obtener comprobante por ID de pedido
+   * Obtener comprobante por ID de pedido Wix
    * @param {string} orderId
    */
   get(orderId) {
-    // Intentar primero con prefijo ml-
-    let key = `ml-${orderId}`;
+    // Intentar primero con prefijo wix-
+    let key = `wix-${orderId}`;
     let result = this.data.get(key);
     if (result) return result;
 
@@ -150,11 +152,11 @@ class ComprobanteStore {
   }
 
   /**
-   * Verificar si existe comprobante para un pedido
+   * Verificar si existe comprobante para un pedido Wix
    * @param {string} orderId
    */
   has(orderId) {
-    return this.data.has(`ml-${orderId}`) || this.data.has(orderId);
+    return this.data.has(`wix-${orderId}`) || this.data.has(orderId);
   }
 
   /**
@@ -326,7 +328,7 @@ class ComprobanteStore {
    * @returns {Object|null}
    */
   findNCByOrderId(orderId) {
-    const key = `nc-ml-${orderId}`;
+    const key = `nc-wix-${orderId}`;
     return this.data.get(key) || null;
   }
 
@@ -336,7 +338,7 @@ class ComprobanteStore {
    * @param {Object} nc - Datos de la NC
    */
   addNC(orderId, nc) {
-    const key = `nc-ml-${orderId}`;
+    const key = `nc-wix-${orderId}`;
     const entry = {
       ...nc,
       order_id: orderId,
@@ -359,62 +361,14 @@ class ComprobanteStore {
     return this.getAll().filter(comp => comp.is_credit_note === true);
   }
 
-  // ========================================================================
-  // MÉTODOS PARA SUBIDA A MERCADOLIBRE
-  // ========================================================================
-
   /**
-   * Buscar comprobantes pendientes de subir a MercadoLibre
-   * @returns {Array}
-   */
-  findPendingMLUpload() {
-    return this.getAll().filter(comp =>
-      comp.pdf_status === 'ready' &&
-      !comp.ml_uploaded &&
-      !comp.is_credit_note &&
-      (comp.ml_upload_attempts || 0) < 5
-    );
-  }
-
-  /**
-   * Marcar comprobante como subido a MercadoLibre
-   * @param {string} orderId
-   */
-  markMLUploaded(orderId) {
-    const key = `ml-${orderId}`;
-    const comp = this.data.get(key);
-
-    if (comp) {
-      comp.ml_uploaded = true;
-      comp.ml_uploaded_at = new Date().toISOString();
-      this.dirty = true;
-      logger.info('Comprobante marcado como subido a ML', { orderId });
-    }
-  }
-
-  /**
-   * Incrementar intentos de subida a MercadoLibre
-   * @param {string} orderId
-   */
-  incrementMLUploadAttempt(orderId) {
-    const key = `ml-${orderId}`;
-    const comp = this.data.get(key);
-
-    if (comp) {
-      comp.ml_upload_attempts = (comp.ml_upload_attempts || 0) + 1;
-      comp.ml_last_upload_attempt = new Date().toISOString();
-      this.dirty = true;
-    }
-  }
-
-  /**
-   * Buscar comprobante por order ID (ML)
+   * Buscar comprobante por order ID (Wix)
    * @param {string} orderId
    * @returns {Object|null}
    */
   findByOrderId(orderId) {
-    // Intentar con prefijo ml-
-    const key = `ml-${orderId}`;
+    // Intentar con prefijo wix-
+    const key = `wix-${orderId}`;
     return this.data.get(key) || null;
   }
 }

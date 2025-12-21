@@ -1,5 +1,6 @@
 /**
- * Servicio para determinar tipo de comprobante y obtener datos de facturación
+ * Servicio para determinar tipo de comprobante y obtener datos de facturacion
+ * Adaptado para ordenes de Wix
  * @module services/billing-decision
  */
 
@@ -7,7 +8,7 @@ const config = require('../config');
 const logger = require('../utils/logger');
 
 /**
- * Obtener límite de 5000 UI en UYU desde config
+ * Obtener limite de 5000 UI en UYU desde config
  * @returns {number}
  */
 function getLimiteUIEnUYU() {
@@ -15,52 +16,47 @@ function getLimiteUIEnUYU() {
 }
 
 // Usar tipos de documento de config
-const { TIPOS_DOCUMENTO } = config;
+const { TIPOS_DOCUMENTO, MAPEO_TIPO_DOCUMENTO_WIX } = config;
 
 /**
- * Determinar tipo de comprobante según datos del comprador
- * @param {Object} orden - Orden de MercadoLibre
- * @param {Object} billingInfo - Datos de billing_info (opcional, se obtiene si no se pasa)
- * @returns {Object} Decisión con tipo, cliente y flags
+ * Determinar tipo de comprobante segun datos del comprador
+ * @param {Object} ordenNormalizada - Orden normalizada de Wix
+ * @returns {Object} Decision con tipo, cliente y flags
  */
-async function determinarTipoComprobante(orden, billingInfo = null) {
-  // Obtener billing_info si no se pasó
-  if (!billingInfo) {
-    billingInfo = await obtenerBillingInfo(orden.id);
-  }
+function determinarTipoComprobante(ordenNormalizada) {
+  const { fiscal, montos, buyer, direccion } = ordenNormalizada;
 
   // Calcular monto neto (sin IVA)
-  const montoTotal = parseFloat(orden.total_amount || orden.paid_amount || 0);
+  const montoTotal = montos.total || 0;
   const montoNeto = montoTotal / 1.22; // Excluir IVA 22%
 
-  // Extraer tipo y número de documento
-  const docType = billingInfo?.doc_type;
-  const docNumber = billingInfo?.doc_number?.replace(/\D/g, '');
+  // Extraer tipo y numero de documento
+  const tipoDocWix = fiscal.tipoDocumento;
+  const documento = fiscal.documento;
 
-  logger.debug('Analizando datos fiscales', {
-    orderId: orden.id,
+  logger.debug('Analizando datos fiscales Wix', {
+    orderId: ordenNormalizada.id,
     montoTotal,
     montoNeto,
-    docType,
-    docNumber: docNumber ? `***${docNumber.slice(-4)}` : 'N/A'
+    tipoDocWix,
+    documento: documento ? `***${documento.slice(-4)}` : 'N/A'
   });
 
-  // CASO A: Tiene RUT de empresa (12 dígitos)
-  if (docType === 'RUT' && docNumber?.length === 12) {
-    logger.info('👔 Cliente con RUT empresa → e-Factura', { orderId: orden.id });
+  // CASO A: Tiene RUT de empresa (12 digitos)
+  if (tipoDocWix === 'UY_RUT' && documento?.length === 12) {
+    logger.info('Cliente con RUT empresa -> e-Factura', { orderId: ordenNormalizada.id });
 
     return {
       tipo: config.TIPOS_CFE.E_FACTURA, // 111
       cliente: {
-        documento: docNumber,
+        documento: documento,
         tipo_documento: TIPOS_DOCUMENTO.RUT,
-        razon_social: extraerCampo(billingInfo, 'BUSINESS_NAME') ||
-          construirNombre(billingInfo),
+        razon_social: fiscal.razonSocial || fiscal.nombreCompleto || 'Cliente',
         pais: 'UY',
         sucursal: {
-          direccion: extraerCampo(billingInfo, 'STREET_NAME'),
-          ciudad: extraerCampo(billingInfo, 'CITY_NAME') || 'Montevideo',
-          departamento: extraerCampo(billingInfo, 'STATE_NAME') || 'Montevideo',
+          direccion: direccion.linea1 || '',
+          ciudad: direccion.ciudad || 'Montevideo',
+          departamento: obtenerDepartamento(direccion.departamento) || 'Montevideo',
           pais: 'UY'
         }
       },
@@ -71,10 +67,10 @@ async function determinarTipoComprobante(orden, billingInfo = null) {
 
   // CASO B: Monto > 5000 UI (requiere identificar receptor)
   if (montoNeto > getLimiteUIEnUYU()) {
-    const tieneDocumento = docNumber && docNumber.length >= 7;
+    const tieneDocumento = documento && documento.length >= 7;
 
-    logger.warn('💰 Venta supera 5000 UI', {
-      orderId: orden.id,
+    logger.warn('Venta supera 5000 UI', {
+      orderId: ordenNormalizada.id,
       montoNeto,
       limite: getLimiteUIEnUYU(),
       tieneDocumento
@@ -83,18 +79,13 @@ async function determinarTipoComprobante(orden, billingInfo = null) {
     return {
       tipo: config.TIPOS_CFE.E_TICKET, // 101
       cliente: {
-        documento: docNumber || null,
-        tipo_documento: obtenerTipoDocumento(docType),
-        nombre_fantasia: construirNombre(billingInfo) ||
-          orden.buyer?.nickname ||
-          'Consumidor',
+        documento: documento || null,
+        tipo_documento: obtenerTipoDocumento(tipoDocWix),
+        nombre_fantasia: fiscal.nombreCompleto || buyer.firstName || 'Consumidor',
         pais: 'UY',
         sucursal: {
-          direccion: extraerCampo(billingInfo, 'STREET_NAME') ||
-            construirDireccion(orden.shipping?.receiver_address),
-          ciudad: extraerCampo(billingInfo, 'CITY_NAME') ||
-            orden.shipping?.receiver_address?.city?.name ||
-            'Montevideo',
+          direccion: direccion.linea1 || '',
+          ciudad: direccion.ciudad || 'Montevideo',
           pais: 'UY'
         }
       },
@@ -105,19 +96,19 @@ async function determinarTipoComprobante(orden, billingInfo = null) {
   }
 
   // CASO C: Tiene CI pero monto bajo
-  if (docType === 'CI' && docNumber?.length >= 7) {
-    logger.info('👤 Cliente con CI, monto bajo → e-Ticket con datos', { orderId: orden.id });
+  if (tipoDocWix === 'UY_CI' && documento?.length >= 7) {
+    logger.info('Cliente con CI, monto bajo -> e-Ticket con datos', { orderId: ordenNormalizada.id });
 
     return {
       tipo: config.TIPOS_CFE.E_TICKET, // 101
       cliente: {
-        documento: docNumber,
+        documento: documento,
         tipo_documento: TIPOS_DOCUMENTO.CI,
-        nombre_fantasia: construirNombre(billingInfo),
+        nombre_fantasia: fiscal.nombreCompleto || buyer.firstName,
         pais: 'UY',
         sucursal: {
-          direccion: extraerCampo(billingInfo, 'STREET_NAME'),
-          ciudad: extraerCampo(billingInfo, 'CITY_NAME') || 'Montevideo',
+          direccion: direccion.linea1 || '',
+          ciudad: direccion.ciudad || 'Montevideo',
           pais: 'UY'
         }
       },
@@ -126,129 +117,61 @@ async function determinarTipoComprobante(orden, billingInfo = null) {
     };
   }
 
-  // CASO D: Sin datos → e-Ticket consumidor final (sin receptor)
-  // Según doc Biller: cliente: "-" para e-Ticket sin datos de receptor
-  logger.info('🛒 Sin datos fiscales → e-Ticket consumidor final', { orderId: orden.id });
+  // CASO D: Sin datos -> e-Ticket consumidor final (sin receptor)
+  logger.info('Sin datos fiscales -> e-Ticket consumidor final', { orderId: ordenNormalizada.id });
 
   return {
     tipo: config.TIPOS_CFE.E_TICKET, // 101
-    cliente: config.CLIENTE_SIN_RECEPTOR,  // "-" según doc Biller
+    cliente: config.CLIENTE_SIN_RECEPTOR,  // "-" segun doc Biller
     requiereIdentificacion: false,
     razon: 'CONSUMIDOR_FINAL'
   };
 }
 
 /**
- * Obtener billing_info desde API MercadoLibre
- * Soporta múltiples formatos de respuesta de ML
- * @param {string} orderId - ID de la orden
- * @returns {Object|null} billing_info normalizado o null
+ * Obtener codigo de tipo de documento Biller desde tipo Wix
+ * @param {string} tipoDocWix - Tipo de documento Wix (UY_RUT, UY_CI, etc)
+ * @returns {number}
  */
-async function obtenerBillingInfo(orderId) {
-  try {
-    // Usar TokenManager si está disponible
-    let accessToken = config.mercadolibre.accessToken;
-    try {
-      const { getTokenManager } = require('../utils/token-manager');
-      accessToken = await getTokenManager().ensureValidToken();
-    } catch (e) {
-      // TokenManager no disponible, usar token de config
-    }
-
-    const response = await fetch(
-      `https://api.mercadolibre.com/orders/${orderId}/billing_info`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        logger.debug('billing_info no disponible (404)', { orderId });
-        return null;
-      }
-      logger.warn('Error obteniendo billing_info', {
-        orderId,
-        status: response.status
-      });
-      return null;
-    }
-
-    const data = await response.json();
-
-    // Normalizar respuesta (ML puede devolver diferentes estructuras)
-    return normalizarBillingInfo(data);
-
-  } catch (error) {
-    logger.error('Error consultando billing_info', {
-      orderId,
-      error: error.message
-    });
-    return null;
-  }
+function obtenerTipoDocumento(tipoDocWix) {
+  return MAPEO_TIPO_DOCUMENTO_WIX[tipoDocWix] || TIPOS_DOCUMENTO.OTRO;
 }
 
 /**
- * Extraer campo de additional_info
- * @param {Object} billingInfo 
- * @param {string} tipo - Tipo de campo (FIRST_NAME, LAST_NAME, etc)
+ * Convertir subdivision de Wix a nombre de departamento
+ * @param {string} subdivision - Ej: "UY-MO" para Montevideo
+ * @returns {string}
  */
-function extraerCampo(billingInfo, tipo) {
-  if (!billingInfo?.additional_info) return null;
+function obtenerDepartamento(subdivision) {
+  if (!subdivision) return null;
 
-  const campo = billingInfo.additional_info.find(i => i.type === tipo);
-  return campo?.value?.trim() || null;
-}
-
-/**
- * Construir nombre completo desde billing_info
- */
-function construirNombre(billingInfo) {
-  if (!billingInfo) return null;
-
-  const firstName = extraerCampo(billingInfo, 'FIRST_NAME');
-  const lastName = extraerCampo(billingInfo, 'LAST_NAME');
-  const businessName = extraerCampo(billingInfo, 'BUSINESS_NAME');
-
-  if (businessName) return businessName;
-
-  const nombre = [firstName, lastName].filter(Boolean).join(' ').trim();
-  return nombre || null;
-}
-
-/**
- * Construir dirección desde receiver_address
- */
-function construirDireccion(address) {
-  if (!address) return null;
-
-  const partes = [
-    address.street_name,
-    address.street_number
-  ].filter(Boolean);
-
-  return partes.join(' ').trim() || null;
-}
-
-/**
- * Obtener código de tipo de documento
- */
-function obtenerTipoDocumento(docType) {
-  const tipos = {
-    'RUT': TIPOS_DOCUMENTO.RUT,
-    'CI': TIPOS_DOCUMENTO.CI,
-    'DNI': TIPOS_DOCUMENTO.CI,
-    'PASSPORT': TIPOS_DOCUMENTO.PASAPORTE
+  const mapeo = {
+    'UY-AR': 'Artigas',
+    'UY-CA': 'Canelones',
+    'UY-CL': 'Cerro Largo',
+    'UY-CO': 'Colonia',
+    'UY-DU': 'Durazno',
+    'UY-FS': 'Flores',
+    'UY-FD': 'Florida',
+    'UY-LA': 'Lavalleja',
+    'UY-MA': 'Maldonado',
+    'UY-MO': 'Montevideo',
+    'UY-PA': 'Paysandu',
+    'UY-RN': 'Rio Negro',
+    'UY-RV': 'Rivera',
+    'UY-RO': 'Rocha',
+    'UY-SA': 'Salto',
+    'UY-SJ': 'San Jose',
+    'UY-SO': 'Soriano',
+    'UY-TA': 'Tacuarembo',
+    'UY-TT': 'Treinta y Tres'
   };
 
-  return tipos[docType] || TIPOS_DOCUMENTO.OTRO;
+  return mapeo[subdivision] || subdivision;
 }
 
 /**
- * Verificar si un monto requiere identificación del receptor
+ * Verificar si un monto requiere identificacion del receptor
  * @param {number} montoTotal - Monto total con IVA
  * @returns {boolean}
  */
@@ -258,7 +181,7 @@ function requiereIdentificacion(montoTotal) {
 }
 
 /**
- * Obtener límite actual de UI en UYU
+ * Obtener limite actual de UI en UYU
  * @returns {number}
  */
 function getLimiteUI() {
@@ -266,72 +189,25 @@ function getLimiteUI() {
 }
 
 /**
- * Normalizar respuesta de billing_info de MercadoLibre
- * ML puede devolver diferentes estructuras según el endpoint
- * @param {Object} data - Respuesta cruda de ML
- * @returns {Object|null} billing_info normalizado
+ * Construir nombre completo desde datos del comprador
+ * @param {Object} buyer - Datos del comprador
+ * @param {Object} fiscal - Datos fiscales
+ * @returns {string|null}
  */
-function normalizarBillingInfo(data) {
-  if (!data) return null;
+function construirNombre(buyer, fiscal) {
+  if (fiscal?.razonSocial) return fiscal.razonSocial;
+  if (fiscal?.nombreCompleto) return fiscal.nombreCompleto;
 
-  // Estructura 1: { billing_info: { doc_type, doc_number, additional_info } }
-  if (data.billing_info) {
-    const bi = data.billing_info;
-    return {
-      doc_type: bi.doc_type,
-      doc_number: bi.doc_number,
-      additional_info: bi.additional_info || []
-    };
-  }
-
-  // Estructura 2: { doc_type, doc_number } directamente
-  if (data.doc_type) {
-    return {
-      doc_type: data.doc_type,
-      doc_number: data.doc_number,
-      additional_info: data.additional_info || []
-    };
-  }
-
-  // Estructura 3: Solo additional_info
-  if (data.additional_info && Array.isArray(data.additional_info)) {
-    const docType = data.additional_info.find(i => i.type === 'DOC_TYPE')?.value;
-    const docNumber = data.additional_info.find(i => i.type === 'DOC_NUMBER')?.value;
-
-    return {
-      doc_type: docType || null,
-      doc_number: docNumber || null,
-      additional_info: data.additional_info
-    };
-  }
-
-  // Estructura 4: Respuesta legacy de billing-info/{site}/{id}
-  if (data.identification) {
-    return {
-      doc_type: data.identification.type,
-      doc_number: data.identification.number,
-      additional_info: [
-        { type: 'FIRST_NAME', value: data.first_name },
-        { type: 'LAST_NAME', value: data.last_name },
-        { type: 'BUSINESS_NAME', value: data.business_name },
-        { type: 'STREET_NAME', value: data.address?.street_name },
-        { type: 'CITY_NAME', value: data.address?.city_name },
-        { type: 'STATE_NAME', value: data.address?.state_name }
-      ].filter(i => i.value)
-    };
-  }
-
-  logger.debug('billing_info con estructura desconocida', { keys: Object.keys(data) });
-  return null;
+  const nombre = [buyer?.firstName, buyer?.lastName].filter(Boolean).join(' ').trim();
+  return nombre || null;
 }
 
 module.exports = {
   determinarTipoComprobante,
-  obtenerBillingInfo,
-  normalizarBillingInfo,
-  extraerCampo,
-  construirNombre,
+  obtenerTipoDocumento,
+  obtenerDepartamento,
   requiereIdentificacion,
   getLimiteUI,
+  construirNombre,
   TIPOS_DOCUMENTO
 };

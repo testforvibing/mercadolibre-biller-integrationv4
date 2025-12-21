@@ -1,13 +1,13 @@
 /**
- * Configuración de la integración MercadoLibre ↔ Biller
+ * Configuracion de la integracion Wix <-> Biller
  * @module config
  */
 
 require('dotenv').config();
 
 /**
- * Tipos de comprobantes fiscales electrónicos (CFE) en Uruguay
- * Según documentación Biller API v2
+ * Tipos de comprobantes fiscales electronicos (CFE) en Uruguay
+ * Segun documentacion Biller API v2
  */
 const TIPOS_CFE = Object.freeze({
   // e-Ticket
@@ -18,7 +18,7 @@ const TIPOS_CFE = Object.freeze({
   E_FACTURA: 111,
   NC_E_FACTURA: 112,
   ND_E_FACTURA: 113,
-  // e-Factura de exportación
+  // e-Factura de exportacion
   E_FACTURA_EXPORTACION: 121,
   NC_E_FACTURA_EXPORTACION: 122,
   ND_E_FACTURA_EXPORTACION: 123,
@@ -42,11 +42,11 @@ const TIPOS_CFE = Object.freeze({
 
 /**
  * Tipos de documento de identidad
- * Según documentación Biller API v2
+ * Segun documentacion Biller API v2
  */
 const TIPOS_DOCUMENTO = Object.freeze({
-  RUT: 2,       // RUT (12 dígitos)
-  CI: 3,        // Cédula de Identidad
+  RUT: 2,       // RUT (12 digitos)
+  CI: 3,        // Cedula de Identidad
   OTRO: 4,      // Otro
   PASAPORTE: 5, // Pasaporte
   DNI: 6,       // DNI (documento extranjero)
@@ -54,43 +54,54 @@ const TIPOS_DOCUMENTO = Object.freeze({
 });
 
 /**
+ * Mapeo de tipos de documento Wix -> Biller
+ */
+const MAPEO_TIPO_DOCUMENTO_WIX = Object.freeze({
+  'UY_RUT': TIPOS_DOCUMENTO.RUT,
+  'UY_CI': TIPOS_DOCUMENTO.CI,
+  'OTHER': TIPOS_DOCUMENTO.OTRO,
+  'PASSPORT': TIPOS_DOCUMENTO.PASAPORTE,
+  'DNI': TIPOS_DOCUMENTO.DNI
+});
+
+/**
  * Formas de pago
- * Según documentación Biller API v2
+ * Segun documentacion Biller API v2
  */
 const FORMAS_PAGO = Object.freeze({
   CONTADO: 1,
   CREDITO: 2,
   // Aliases para compatibilidad
   EFECTIVO: 1,
+  TARJETA: 2,
   OTRO: 1  // Default a contado
 });
 
 /**
- * Indicadores de facturación para items
- * Según documentación Biller API v2
+ * Indicadores de facturacion para items
+ * Segun documentacion Biller API v2
  */
 const INDICADORES_IVA = Object.freeze({
   EXENTO: 1,                    // Exento de IVA
-  GRAVADO_MINIMA: 2,            // Tasa mínima (10%)
-  GRAVADO_BASICA: 3,            // Tasa básica (22%)
+  GRAVADO_MINIMA: 2,            // Tasa minima (10%)
+  GRAVADO_BASICA: 3,            // Tasa basica (22%)
   OTRA_TASA: 4,                 // Otra tasa
   ENTREGA_GRATUITA: 5,          // Entrega gratuita
   NO_FACTURABLE: 6,             // Producto o servicio no facturable
   NO_FACTURABLE_NEGATIVO: 7,    // Producto o servicio no facturable negativo
-  ITEM_REBAJAR: 8,              // Ítem a rebajar en e-remitos
-  ITEM_ANULAR: 9,               // Ítem a anular en resguardos
-  EXPORTACION: 10,              // Exportación y asimiladas
+  ITEM_REBAJAR: 8,              // Item a rebajar en e-remitos
+  ITEM_ANULAR: 9,               // Item a anular en resguardos
+  EXPORTACION: 10,              // Exportacion y asimiladas
   IMPUESTO_PERCIBIDO: 11,       // Impuesto percibido
   IVA_SUSPENSO: 12,             // IVA en suspenso
-  VENDIDO_NO_CONTRIBUYENTE: 13, // Ítem vendido no contribuyente
-  VENDIDO_MONOTRIBUTO: 14,      // Ítem vendido contribuyente monotributo
-  VENDIDO_IMEBA: 15,            // Ítem vendido contribuyente IMEBA
-  VENDIDO_IVA_MINIMO: 16        // Ítem Vendido Contribuyente IVA mínimo, Monotributo o Monotributo MIDES
+  VENDIDO_NO_CONTRIBUYENTE: 13, // Item vendido no contribuyente
+  VENDIDO_MONOTRIBUTO: 14,      // Item vendido contribuyente monotributo
+  VENDIDO_IMEBA: 15,            // Item vendido contribuyente IMEBA
+  VENDIDO_IVA_MINIMO: 16        // Item Vendido Contribuyente IVA minimo
 });
 
 /**
  * Tipos de descuento/recargo para items
- * Según documentación Biller API v2
  */
 const TIPOS_DESCUENTO = Object.freeze({
   PORCENTAJE: '%',
@@ -98,7 +109,7 @@ const TIPOS_DESCUENTO = Object.freeze({
 });
 
 /**
- * Códigos de país más comunes
+ * Codigos de pais mas comunes
  */
 const PAISES = Object.freeze({
   URUGUAY: 'UY',
@@ -118,12 +129,13 @@ const PAISES = Object.freeze({
 const CLIENTE_SIN_RECEPTOR = '-';
 
 /**
- * Configuración principal
+ * Configuracion principal
  */
 const config = {
   // Constantes
   TIPOS_CFE,
   TIPOS_DOCUMENTO,
+  MAPEO_TIPO_DOCUMENTO_WIX,
   FORMAS_PAGO,
   INDICADORES_IVA,
   TIPOS_DESCUENTO,
@@ -150,7 +162,7 @@ const config = {
       nombre: process.env.BILLER_EMPRESA_NOMBRE || 'Mi Empresa'
     },
 
-    // Configuración de reintentos
+    // Configuracion de reintentos
     retry: {
       maxAttempts: parseInt(process.env.BILLER_RETRY_ATTEMPTS) || 3,
       initialDelay: parseInt(process.env.BILLER_RETRY_DELAY) || 1000,
@@ -163,41 +175,49 @@ const config = {
   },
 
   // ============================================================
-  // MERCADO LIBRE
+  // WIX
   // ============================================================
-  mercadolibre: {
+  wix: {
     // Credenciales de la aplicacion
-    appId: process.env.ML_APP_ID,
-    appSecret: process.env.ML_APP_SECRET,
+    clientId: process.env.WIX_CLIENT_ID,
+    clientSecret: process.env.WIX_CLIENT_SECRET,
 
-    // Tokens (obtenidos via OAuth)
-    accessToken: process.env.ML_ACCESS_TOKEN,
-    refreshToken: process.env.ML_REFRESH_TOKEN,
+    // Tokens OAuth
+    accessToken: process.env.WIX_ACCESS_TOKEN,
+    refreshToken: process.env.WIX_REFRESH_TOKEN,
 
-    // ID del usuario/vendedor
-    userId: process.env.ML_USER_ID,
+    // Site ID
+    siteId: process.env.WIX_SITE_ID,
 
-    // Pais (UY, AR, BR, MX, CL, CO)
-    country: process.env.ML_COUNTRY || 'UY',
+    // API Base URL
+    apiBaseUrl: process.env.WIX_API_BASE_URL || 'https://www.wixapis.com',
+
+    // Public Key para verificar webhooks (JWT)
+    webhookPublicKey: process.env.WIX_WEBHOOK_PUBLIC_KEY,
 
     // URL de redireccion para OAuth
     get redirectUri() {
       const serverUrl = process.env.SERVER_PUBLIC_URL || 'http://localhost:3000';
-      return `${serverUrl}/auth/mercadolibre/callback`;
+      return `${serverUrl}/auth/wix/callback`;
     },
 
     // Timeout de requests (ms)
-    timeout: parseInt(process.env.ML_TIMEOUT) || 30000,
+    timeout: parseInt(process.env.WIX_TIMEOUT) || 30000,
 
     // Configuracion de reintentos
     retry: {
-      maxAttempts: parseInt(process.env.ML_RETRY_ATTEMPTS) || 3,
-      initialDelay: parseInt(process.env.ML_RETRY_DELAY) || 1000,
-      maxDelay: parseInt(process.env.ML_RETRY_MAX_DELAY) || 10000
+      maxAttempts: parseInt(process.env.WIX_RETRY_ATTEMPTS) || 3,
+      initialDelay: parseInt(process.env.WIX_RETRY_DELAY) || 1000,
+      maxDelay: parseInt(process.env.WIX_RETRY_MAX_DELAY) || 10000
     },
 
-    // Topics de webhooks a suscribirse
-    webhookTopics: ['orders_v2', 'payments', 'claims']
+    // Eventos de webhook a procesar
+    webhookEvents: {
+      // Eventos que disparan emision de CFE
+      emitir: (process.env.WIX_EVENTS_EMIT || 'approved').split(',').map(s => s.trim()),
+      // Eventos que disparan emision de NC
+      anular: (process.env.WIX_EVENTS_CANCEL || 'canceled,transactionsUpdated').split(',').map(s => s.trim())
+    }
   },
 
   // ============================================================
@@ -207,41 +227,28 @@ const config = {
     port: parseInt(process.env.SERVER_PORT) || 3000,
     host: process.env.SERVER_HOST || '0.0.0.0',
     publicUrl: process.env.SERVER_PUBLIC_URL || 'http://localhost:3000',
-    webhookPath: '/webhooks/mercadolibre',
+    webhookPath: '/webhooks/wix',
 
     // Graceful shutdown timeout
     shutdownTimeout: parseInt(process.env.SHUTDOWN_TIMEOUT) || 10000
   },
 
   // ============================================================
-  // FACTURACIÓN
+  // FACTURACION
   // ============================================================
   facturacion: {
     validarRUTConDGI: process.env.VALIDAR_RUT_CON_DGI === 'true',
     enviarAlCliente: process.env.ENVIAR_COMPROBANTE_CLIENTE !== 'false',
-    agregarNotaEnPedido: process.env.AGREGAR_LINK_EN_PEDIDO !== 'false',
 
-    // IVA por defecto (22% = tasa básica)
-    ivaDefault: parseInt(process.env.IVA_DEFAULT) || 22,
-
-    // Campos donde buscar RUT
-    camposRUT: [
-      'rut', 'RUT', 'rut_ci', 'RUT_CI', 'documento', 'tax_id',
-      'vat_number', 'ruc', 'ci', 'CI', 'cedula'
-    ],
-
-    // Campos donde buscar razón social
-    camposRazonSocial: [
-      'razon_social', 'razonSocial', 'empresa', 'company',
-      'business_name', 'nombre_empresa'
-    ]
+    // IVA por defecto (22% = tasa basica)
+    ivaDefault: parseInt(process.env.IVA_DEFAULT) || 22
   },
 
   // ============================================================
   // REGLAS DGI URUGUAY
   // ============================================================
   dgi: {
-    // Límite de 5000 UI para identificar receptor en e-Ticket
+    // Limite de 5000 UI para identificar receptor en e-Ticket
     // Desde 01/11/2022, e-Tickets > 5000 UI requieren identificar al receptor
     limiteUI: 5000,
 
@@ -249,40 +256,23 @@ const config = {
     // Fuente: https://www.ine.gub.uy/unidad-indexada
     valorUI: parseFloat(process.env.DGI_VALOR_UI) || 6.50,
 
-    // Margen de seguridad (empezar a requerir datos antes del límite exacto)
+    // Margen de seguridad (empezar a requerir datos antes del limite exacto)
     margenSeguridad: parseFloat(process.env.DGI_MARGEN_SEGURIDAD) || 0.92,
 
-    // Calcular límite en UYU
+    // Calcular limite en UYU
     get limiteMontoUYU() {
       return Math.floor(this.limiteUI * this.valorUI * this.margenSeguridad);
     }
   },
 
   // ============================================================
-  // SUBIDA DE FACTURAS A MERCADOLIBRE
-  // ============================================================
-  mlInvoiceUpload: {
-    // Habilitar subida automática de PDFs a MercadoLibre
-    enabled: process.env.ML_INVOICE_UPLOAD_ENABLED !== 'false',
-
-    // Intervalo de procesamiento del worker (ms)
-    processInterval: parseInt(process.env.ML_UPLOAD_INTERVAL) || 30000,
-
-    // Máximo intentos de subida
-    maxAttempts: parseInt(process.env.ML_UPLOAD_MAX_ATTEMPTS) || 5,
-
-    // También agregar nota con link en la orden
-    agregarNota: process.env.ML_AGREGAR_NOTA !== 'false'
-  },
-
-  // ============================================================
   // PROCESAMIENTO
   // ============================================================
   procesamiento: {
-    // Máximo de webhooks concurrentes
+    // Maximo de webhooks concurrentes
     maxConcurrent: parseInt(process.env.MAX_CONCURRENT_WEBHOOKS) || 3,
 
-    // Tiempo de deduplicación (ms)
+    // Tiempo de deduplicacion (ms)
     dedupeWindow: parseInt(process.env.DEDUPE_WINDOW) || 5 * 60 * 1000,
 
     // Intervalo de limpieza de cache (ms)
@@ -311,7 +301,7 @@ const config = {
 };
 
 /**
- * Validar configuración requerida
+ * Validar configuracion requerida
  * @returns {{valid: boolean, errors: string[]}}
  */
 function validarConfiguracion() {
@@ -325,20 +315,20 @@ function validarConfiguracion() {
     errors.push('BILLER_EMPRESA_ID es requerido');
   }
   if (config.biller.empresa.rut && !/^\d{12}$/.test(config.biller.empresa.rut)) {
-    errors.push('BILLER_EMPRESA_RUT debe tener 12 dígitos');
+    errors.push('BILLER_EMPRESA_RUT debe tener 12 digitos');
   }
 
-  // MercadoLibre
-  if (!config.mercadolibre.appId) {
-    errors.push('ML_APP_ID es requerido');
+  // Wix
+  if (!config.wix.clientId) {
+    errors.push('WIX_CLIENT_ID es requerido');
   }
-  if (!config.mercadolibre.appSecret) {
-    errors.push('ML_APP_SECRET es requerido');
+  if (!config.wix.clientSecret) {
+    errors.push('WIX_CLIENT_SECRET es requerido');
   }
 
   // Servidor
   if (!config.server.publicUrl || config.server.publicUrl === 'http://localhost:3000') {
-    errors.push('SERVER_PUBLIC_URL debe configurarse con la URL pública (ej: https://tu-app.onrender.com)');
+    errors.push('SERVER_PUBLIC_URL debe configurarse con la URL publica (ej: https://tu-app.onrender.com)');
   }
 
   return {
@@ -348,14 +338,14 @@ function validarConfiguracion() {
 }
 
 /**
- * Mostrar errores de configuración
+ * Mostrar errores de configuracion
  */
 function mostrarErrores() {
   const { valid, errors } = validarConfiguracion();
 
   if (!valid) {
-    console.error('\n❌ Errores de configuración:');
-    errors.forEach(e => console.error(`   • ${e}`));
+    console.error('\n Errores de configuracion:');
+    errors.forEach(e => console.error(`   - ${e}`));
     console.error('\nRevisa tu archivo .env\n');
   }
 

@@ -150,7 +150,7 @@ class PrometheusMetrics {
      */
     export() {
         const lines = [];
-        lines.push('# MercadoLibre-Biller Integration Metrics\n');
+        lines.push('# Wix-Biller Integration Metrics\n');
 
         // Contadores
         for (const [name, counter] of this.counters) {
